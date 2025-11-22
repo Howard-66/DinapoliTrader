@@ -1,5 +1,7 @@
 import pandas as pd
 import numpy as np
+from src.risk.manager import RiskManager
+from src.indicators.basics import Indicators
 
 class PerformanceAnalyzer:
     """
@@ -16,7 +18,11 @@ class PerformanceAnalyzer:
     def calculate_metrics(self, 
                           holding_period: int = 5, 
                           stop_loss_pct: float = 0.02, 
-                          take_profit_pct: float = 0.05) -> dict:
+                          take_profit_pct: float = 0.05,
+                          initial_capital: float = 100000.0,
+                          use_dynamic_sizing: bool = False,
+                          risk_per_trade_pct: float = 0.01,
+                          atr_multiplier: float = 2.0) -> dict:
         """
         Calculate trade metrics.
         
@@ -35,7 +41,15 @@ class PerformanceAnalyzer:
         """
         trades = []
         trade_log_data = []
-        trade_returns = pd.Series(0.0, index=self.df.index)
+
+        # For equity curve, we need to track daily portfolio value
+        portfolio_value = pd.Series(initial_capital, index=self.df.index)
+        current_capital = initial_capital
+        
+        # Pre-calculate ATR if needed
+        atr_series = None
+        if use_dynamic_sizing:
+            atr_series = Indicators.atr(self.df['high'], self.df['low'], self.df['close'], 14)
         
         # Filter only Buy signals for now (as PatternRecognizer mainly does Buy Double Repo)
         buy_signals = self.signals[self.signals['signal'] == 'BUY']
@@ -47,9 +61,11 @@ class PerformanceAnalyzer:
                 'Avg Return': 0.0,
                 'Total Return': 0.0,
                 'Max Drawdown': 0.0,
-                'Equity Curve': pd.Series(1.0, index=self.df.index),
+
+                'Equity Curve': pd.Series(initial_capital, index=self.df.index),
                 'Drawdown Curve': pd.Series(0.0, index=self.df.index)
             }
+
 
         for date, row in buy_signals.iterrows():
             # Find index of signal
@@ -61,6 +77,26 @@ class PerformanceAnalyzer:
                 continue
                 
             entry_price = self.df['close'].iloc[idx]
+            
+            # Determine Stop Loss Price
+            sl_price = 0.0
+            if use_dynamic_sizing and atr_series is not None:
+                current_atr = atr_series.iloc[idx]
+                if np.isnan(current_atr):
+                    current_atr = entry_price * 0.01 # Fallback
+                sl_price = RiskManager.calculate_atr_stop_loss(entry_price, current_atr, atr_multiplier, 'BUY')
+            else:
+                sl_price = entry_price * (1 - stop_loss_pct)
+                
+            # Determine Position Size
+            quantity = 100 # Default
+            if use_dynamic_sizing:
+                quantity = RiskManager.calculate_position_size(current_capital, risk_per_trade_pct, entry_price, sl_price)
+            
+            # Determine Take Profit Price (based on R:R or fixed %)
+            # If using ATR SL, let's assume fixed TP % for simplicity or 2x Risk
+            # For now keeping fixed TP % logic but relative to entry
+            tp_price = entry_price * (1 + take_profit_pct)
             
             # Simulate trade
             exit_price = entry_price
@@ -105,12 +141,12 @@ class PerformanceAnalyzer:
                 curr_date = self.df.index[current_idx]
                 
                 # Check SL/TP
-                if curr_low <= entry_price * (1 - stop_loss_pct):
-                    exit_price = entry_price * (1 - stop_loss_pct)
+                if curr_low <= sl_price:
+                    exit_price = sl_price
                     final_exit_date = curr_date
                     break
-                elif curr_high >= entry_price * (1 + take_profit_pct):
-                    exit_price = entry_price * (1 + take_profit_pct)
+                elif curr_high >= tp_price:
+                    exit_price = tp_price
                     final_exit_date = curr_date
                     break
                 
@@ -118,8 +154,11 @@ class PerformanceAnalyzer:
                 final_exit_date = curr_date
             
             pnl_pct = (exit_price - entry_price) / entry_price
-            pnl_amount = (exit_price - entry_price) * 100 # Assuming 100 shares
+            pnl_amount = (exit_price - entry_price) * quantity
             trades.append(pnl_pct)
+            
+            # Update Capital
+            current_capital += pnl_amount
             
             # Record Trade Log
             trade_log_data.append({
@@ -129,14 +168,23 @@ class PerformanceAnalyzer:
                 'Entry Price': entry_price,
                 'Exit Date': final_exit_date if final_exit_date else date,
                 'Exit Price': exit_price,
-                'Quantity': 100,
+                'Quantity': quantity,
                 'PnL Amount': pnl_amount,
-                'PnL %': pnl_pct
+                'PnL Amount': pnl_amount,
+                'PnL %': pnl_pct,
+                'Confidence': row.get('confidence', np.nan)
             })
             
-            # Add return to the exit date
+            # Update Portfolio Value Curve (Simplified: Step change at exit)
+            # In reality, equity changes daily. For estimation, we just add PnL at exit.
             if final_exit_date:
-                trade_returns[final_exit_date] += pnl_pct
+                # Find indices between entry and exit
+                # Actually, simpler to just add pnl to all days AFTER exit
+                # But we want a time series.
+                # Let's just set the value from exit_date onwards to new capital
+                # This is an approximation.
+                mask = portfolio_value.index >= final_exit_date
+                portfolio_value.loc[mask] = current_capital
 
         if not trades:
              return {
@@ -145,7 +193,9 @@ class PerformanceAnalyzer:
                 'Avg Return': 0.0,
                 'Total Return': 0.0,
                 'Max Drawdown': 0.0,
-                'Equity Curve': pd.Series(1.0, index=self.df.index),
+                'Total Return': 0.0,
+                'Max Drawdown': 0.0,
+                'Equity Curve': pd.Series(initial_capital, index=self.df.index),
                 'Drawdown Curve': pd.Series(0.0, index=self.df.index),
                 'Trade Log': pd.DataFrame()
             }
@@ -155,8 +205,8 @@ class PerformanceAnalyzer:
         avg_return = np.mean(trades_np)
         
         # Calculate Equity Curve
-        equity_curve = (1 + trade_returns).cumprod()
-        total_return = equity_curve.iloc[-1] - 1.0
+        equity_curve = portfolio_value
+        total_return = (equity_curve.iloc[-1] - initial_capital) / initial_capital
         
         # Calculate Drawdown Curve
         peak = equity_curve.cummax()

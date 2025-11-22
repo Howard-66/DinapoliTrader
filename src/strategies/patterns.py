@@ -82,3 +82,99 @@ class PatternRecognizer:
                              signals.iloc[i] = ['BUY', 'Double Repo']
                              
         return signals
+
+    def apply_trend_filter(self, signals: pd.DataFrame, trend_ma: pd.Series) -> pd.DataFrame:
+        """
+        Apply Trend Filter (e.g., SMA 200).
+        BUY only if Close > Trend MA.
+        SELL only if Close < Trend MA.
+        """
+        if trend_ma is None:
+            return signals
+            
+        filtered_signals = signals.copy()
+        close = self.df['close']
+        
+        # Filter BUYs
+        buy_mask = (filtered_signals['signal'] == 'BUY')
+        # Ensure alignment
+        trend_aligned = close > trend_ma
+        filtered_signals.loc[buy_mask & (~trend_aligned), 'signal'] = np.nan
+        filtered_signals.loc[buy_mask & (~trend_aligned), 'pattern'] = np.nan
+        
+        # Filter SELLs
+        sell_mask = (filtered_signals['signal'] == 'SELL')
+        trend_aligned_sell = close < trend_ma
+        filtered_signals.loc[sell_mask & (~trend_aligned_sell), 'signal'] = np.nan
+        filtered_signals.loc[sell_mask & (~trend_aligned_sell), 'pattern'] = np.nan
+        
+        return filtered_signals
+
+    def detect_single_penetration(self, thrust_bars: int = 8) -> pd.DataFrame:
+        """
+        检测 Single Penetration (Bread & Butter) 模式。
+        
+        逻辑（以看涨为例）：
+        1. Thrust: 价格连续 N 根 K 线收盘在 3x3 DMA 之上。
+        2. Penetration: 价格回调并触及 3x3 DMA（Low <= 3x3）。
+        3. 信号：在触及点生成买入信号。
+        
+        Args:
+            thrust_bars (int): 定义 Thrust 所需的最少 K 线数量 (默认 8)。
+            
+        Returns:
+            pd.DataFrame: 包含信号的 DataFrame。
+        """
+        signals = pd.DataFrame(index=self.df.index, columns=['signal', 'pattern'])
+        
+        close = self.df['close']
+        low = self.df['low']
+        high = self.df['high']
+        dma3 = self.dma_3x3
+        
+        # 1. Identify Thrust
+        # Bullish Thrust: Close > 3x3 DMA
+        bull_thrust = (close > dma3).astype(int)
+        # Bearish Thrust: Close < 3x3 DMA
+        bear_thrust = (close < dma3).astype(int)
+        
+        # Calculate consecutive thrust bars
+        # Group consecutive 1s and count
+        # Simple loop for clarity (vectorization possible with cumsum-reset logic)
+        
+        current_bull_run = 0
+        current_bear_run = 0
+        
+        for i in range(1, len(self.df)):
+            # Bullish Logic
+            if close.iloc[i-1] > dma3.iloc[i-1]:
+                current_bull_run += 1
+            else:
+                current_bull_run = 0
+                
+            # Check for Penetration after sufficient thrust
+            if current_bull_run >= thrust_bars:
+                # Check if CURRENT bar penetrates (Low <= 3x3)
+                # Note: The thrust condition applies to PREVIOUS bars.
+                # If current bar opens above but touches 3x3, it's a buy.
+                if low.iloc[i] <= dma3.iloc[i] and close.iloc[i] > dma3.iloc[i]: # Close > 3x3 ensures it's a bounce, not a breakdown? 
+                    # DiNapoli definition: "The first time the market penetrates the 3x3 DMA after a thrust"
+                    # We can just mark the penetration.
+                    if low.iloc[i] <= dma3.iloc[i]:
+                         signals.iloc[i] = ['BUY', 'Single Penetration']
+                         # Reset run to avoid multiple signals in same pullback? 
+                         # Usually we take the first one.
+                         current_bull_run = 0 
+
+            # Bearish Logic
+            if close.iloc[i-1] < dma3.iloc[i-1]:
+                current_bear_run += 1
+            else:
+                current_bear_run = 0
+                
+            if current_bear_run >= thrust_bars:
+                if high.iloc[i] >= dma3.iloc[i]:
+                    signals.iloc[i] = ['SELL', 'Single Penetration']
+                    current_bear_run = 0
+                    
+        return signals

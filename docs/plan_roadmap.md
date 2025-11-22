@@ -33,3 +33,19 @@
 - [ ] **Risk Management Module**: Kelly Criterion sizing, Max Drawdown limits.
 - [ ] **Paper Trading**: Connect to exchange sandbox.
 - [ ] **Dashboard**: Real-time web UI (Streamlit) showing active signals and account health.
+
+## Phase 5: Strategy Optimization & Alpha Generation (Completed)
+**Goal:** Enhance profitability through rigorous optimization and advanced filtering.
+- [x] **Signal Filtering**:
+    - **Trend Alignment**: Only take signals in direction of higher timeframe trend (SMA 200).
+    - **Volatility Filter**: ATR-based filtering.
+- [x] **Parameter Optimization**:
+    - **Grid Search**: Find optimal Holding Period, Stop Loss, and Take Profit.
+- [x] **Advanced Patterns**:
+    - **Single Penetration (Bread & Butter)**: Implemented high-probability trend continuation pattern.
+- [x] **Real ML Model Training**:
+    - **Random Forest Classifier**: Trained on historical signals to predict success probability.
+    - **ML Lab**: UI for training and evaluating models.
+- [x] **Dynamic Risk Management**:
+    - **ATR-based Stop Loss**: Adjust SL based on volatility.
+    - **Dynamic Position Sizing**: Risk-based sizing (e.g., 1% risk per trade).

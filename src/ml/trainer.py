@@ -1,0 +1,105 @@
+import pandas as pd
+import numpy as np
+from sklearn.ensemble import RandomForestClassifier
+from sklearn.model_selection import train_test_split
+from sklearn.metrics import accuracy_score, precision_score
+import joblib
+import os
+from src.ml.features import FeatureExtractor
+
+class ModelTrainer:
+    """
+    Trains a ML model to filter signals.
+    """
+    
+    def __init__(self):
+        self.model = RandomForestClassifier(n_estimators=100, max_depth=5, random_state=42)
+        self.model_path = os.path.join(os.path.dirname(__file__), 'signal_classifier.joblib')
+        
+    def generate_dataset(self, df: pd.DataFrame, signals: pd.DataFrame, 
+                         holding_period: int = 5, 
+                         stop_loss_pct: float = 0.02, 
+                         take_profit_pct: float = 0.05):
+        """
+        Generate X (features) and y (labels) from signals.
+        Label 1 if trade hits TP before SL, else 0.
+        """
+        extractor = FeatureExtractor(df)
+        features_df = extractor.get_all_features()
+        
+        X = []
+        y = []
+        
+        # Filter for BUY signals only for now
+        buy_signals = signals[signals['signal'] == 'BUY']
+        
+        for date, row in buy_signals.iterrows():
+            if date not in df.index:
+                continue
+                
+            idx_loc = df.index.get_loc(date)
+            if idx_loc + 1 >= len(df):
+                continue
+                
+            # Get Features
+            feature_row = features_df.loc[date]
+            X.append(feature_row.values)
+            
+            # Determine Label (Simulate Trade)
+            entry_price = df['close'].iloc[idx_loc]
+            label = 0 # Default Loss
+            
+            for i in range(1, holding_period + 1):
+                curr_idx = idx_loc + i
+                if curr_idx >= len(df):
+                    break
+                    
+                curr_high = df['high'].iloc[curr_idx]
+                curr_low = df['low'].iloc[curr_idx]
+                
+                # Check TP first (optimistic? or SL first? Let's check SL first for conservatism)
+                if curr_low <= entry_price * (1 - stop_loss_pct):
+                    label = 0
+                    break
+                elif curr_high >= entry_price * (1 + take_profit_pct):
+                    label = 1
+                    break
+                
+                # If held to end, check return
+                if i == holding_period:
+                    exit_price = df['close'].iloc[curr_idx]
+                    if exit_price > entry_price: # Simple positive return
+                        label = 1
+                    else:
+                        label = 0
+                        
+            y.append(label)
+            
+        return np.array(X), np.array(y), features_df.columns
+        
+    def train(self, df: pd.DataFrame, signals: pd.DataFrame):
+        """
+        Train the model and save it.
+        """
+        X, y, feature_names = self.generate_dataset(df, signals)
+        
+        if len(X) < 10:
+            return {"status": "error", "message": "Not enough signals to train (need > 10)"}
+            
+        X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=0.2, random_state=42)
+        
+        self.model.fit(X_train, y_train)
+        
+        y_pred = self.model.predict(X_test)
+        accuracy = accuracy_score(y_test, y_pred)
+        precision = precision_score(y_test, y_pred, zero_division=0)
+        
+        # Save model
+        joblib.dump(self.model, self.model_path)
+        
+        return {
+            "status": "success",
+            "accuracy": accuracy,
+            "precision": precision,
+            "samples": len(X)
+        }

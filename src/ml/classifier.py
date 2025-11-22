@@ -6,16 +6,54 @@ from sklearn.metrics import accuracy_score, precision_score
 import joblib
 import os
 
+from src.ml.features import FeatureExtractor
+
 class SignalClassifier:
     """
-    信号分类器。
-    使用Random Forest判断交易信号的成功概率。
+    Signal Classifier using Random Forest.
     """
 
-    def __init__(self, model_path: str = 'models/rf_classifier.pkl'):
-        self.model = RandomForestClassifier(n_estimators=100, max_depth=5, random_state=42)
-        self.model_path = model_path
+    def __init__(self, model_path: str = None):
+        if model_path:
+            self.model_path = model_path
+        else:
+            self.model_path = os.path.join(os.path.dirname(__file__), 'signal_classifier.joblib')
+        self.model = None
         self.is_trained = False
+        self._load_model()
+        
+    def _load_model(self):
+        if os.path.exists(self.model_path):
+            try:
+                self.model = joblib.load(self.model_path)
+                self.is_trained = True
+            except Exception as e:
+                print(f"Failed to load model: {e}")
+
+    def predict_proba(self, df: pd.DataFrame, idx: int) -> float:
+        """
+        Predict probability of success for a signal at a given index.
+        """
+        if not self.is_trained or self.model is None:
+            return 0.5 # Default neutral probability
+            
+        extractor = FeatureExtractor(df)
+        features = extractor.get_features(idx)
+        
+        if not features:
+            return 0.5
+            
+        # Convert to DataFrame (single row)
+        X = pd.DataFrame([features])
+        # Ensure column order matches training (handled by FeatureExtractor usually, but good to be safe)
+        # Here we rely on FeatureExtractor returning consistent dict keys.
+        
+        try:
+            prob = self.model.predict_proba(X)[0][1] # Probability of class 1
+            return prob
+        except Exception as e:
+            print(f"Prediction error: {e}")
+            return 0.5
 
     def train(self, X: pd.DataFrame, y: pd.Series):
         """
@@ -37,16 +75,4 @@ class SignalClassifier:
         os.makedirs(os.path.dirname(self.model_path), exist_ok=True)
         joblib.dump(self.model, self.model_path)
 
-    def predict_proba(self, X: pd.DataFrame) -> np.ndarray:
-        """
-        预测概率。
-        """
-        if not self.is_trained:
-            # Try load
-            if os.path.exists(self.model_path):
-                self.model = joblib.load(self.model_path)
-                self.is_trained = True
-            else:
-                raise Exception("Model not trained or found.")
-                
-        return self.model.predict_proba(X)[:, 1] # Return probability of class 1 (Success)
+
