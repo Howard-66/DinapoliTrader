@@ -19,24 +19,37 @@ Double Repo 是一种“失败的突破”模式，通常发生在趋势末端�
     -   **时间限制**：两次穿透之间的时间间隔不宜过长。
 
 ### 1.2 止损与止盈 (Exit Rules)
+系统支持三种止损模式和两种止盈模式，可根据市场环境灵活选择：
 
-*   **止损 (Stop Loss)**：
-    *   **位置**：设置在整个形态的最低点下方（即第一次穿透后形成的低点）。
-    *   **动态调整**：可结合 ATR (平均真实波幅) 进行动态止损，例如 `Entry - 2 * ATR`。
+*   **止损模式 (Stop Loss Modes)**：
+    1.  **Pattern Based (形态止损)**：
+        *   使用形态结构的最低点。
+        *   对于 Double Repo：使用第一次穿透后形成的最低点 (Pattern Low)。
+    2.  **ATR Based (波动率止损)**：
+        *   基于 ATR (平均真实波幅) 动态调整。
+        *   公式：`Entry Price - (ATR * Multiplier)`。
+        *   适用于高波动市场，给予价格呼吸空间。
+    3.  **Fixed Percentage (固定百分比)**：
+        *   使用固定的百分比回撤。
+        *   公式：`Entry Price * (1 - Stop Loss %)`。
 
-*   **止盈 (Take Profit)**：
-    *   使用 **斐波那契扩展 (Fibonacci Expansions)** 工具计算目标位。
-    *   基于 A-B-C 波段（A=起点, B=第一次高点, C=回调低点）。
-    *   **目标位**：
-        *   **COP (Contracted Objective Point)**: 0.618 扩展位。
-        *   **OP (Objective Point)**: 1.000 扩展位。
-        *   **XOP (Expanded Objective Point)**: 1.618 扩展位。
+*   **止盈模式 (Take Profit Modes)**：
+    1.  **Pattern Based (Fibonacci)**：
+        *   使用斐波那契扩展目标位。
+        *   对于 Double Repo：默认目标为 OP (1.0 扩展) 或 COP (0.618 扩展)。
+    2.  **Fixed Percentage (固定百分比)**：
+        *   使用固定的百分比目标。
+        *   公式：`Entry Price * (1 + Take Profit %)`。
+
+*   **时间止损 (Time Exit)**：
+    *   **Holding Period**：持仓超过指定 K 线数量后强制平仓，作为最后的风控手段。
 
 ### 1.3 头寸控制 (Position Sizing)
 
-*   **风险模型**：基于账户权益的固定百分比风险（例如每笔交易风险 2%）。
-*   **计算公式**：
-    $$ \text{头寸数量} = \frac{\text{账户权益} \times \text{风险百分比}}{|\text{进场价} - \text{止损价}|} $$
+*   **动态仓位 (Dynamic Sizing)**：
+    *   基于账户权益的固定百分比风险 (Risk % per Trade)。
+    *   公式：$$ \text{Size} = \frac{\text{Equity} \times \text{Risk \%}}{|\text{Entry} - \text{SL}|} $$
+    *   当止损幅度较小时，仓位自动放大；止损幅度大时，仓位自动缩小，确保每笔交易的金额风险恒定。
 
 ---
 
@@ -55,24 +68,21 @@ Single Penetration 是一种趋势跟踪模式，旨在捕捉强劲趋势中的�
     *   价格回调并触及 3x3 DMA。
     *   **触发点**：当 K 线的最低价 (Low) 小于或等于 3x3 DMA 时触发。
 3.  **进场方式**：
-    *   激进：在价格触及 3x3 DMA 时直接挂单买入。
-    *   保守：等待 K 线收盘，确认收盘价仍在 3x3 DMA 附近或之上（未完全崩盘）后进场。
+    *   在价格触及 3x3 DMA 时生成买入信号。
 
 ### 2.2 止损与止盈 (Exit Rules)
 
-*   **止损 (Stop Loss)**：
-    *   设置在最近的一个显著摆动低点下方。
-    *   或使用 ATR 止损来适应市场波动。
+*   **止损模式**：
+    *   **Pattern Based**：使用推力启动时的低点 (Thrust Start Low) 或最近的摆动低点。
+    *   同样支持 **ATR Based** 和 **Fixed Percentage**。
 
-*   **止盈 (Take Profit)**：
-    *   主要目标是趋势恢复。
-    *   可以使用 **斐波那契回撤 (Fibonacci Retracements)** 的反向逻辑，或者前高点。
-    *   通常目标较为保守，旨在获取“面包和黄油”般的稳定收益。
+*   **止盈模式**：
+    *   **Pattern Based**：通常以推力的高点 (Thrust High) 为初步目标。
+    *   同样支持 **Fixed Percentage**。
 
 ### 2.3 头寸控制 (Position Sizing)
 
-*   采用与 Double Repo 相同的风险百分比模型。
-*   由于是顺势交易，胜率通常较高，但盈亏比可能略低于反转交易。
+*   与 Double Repo 共享相同的动态仓位逻辑。
 
 ---
 
@@ -84,4 +94,5 @@ Single Penetration 是一种趋势跟踪模式，旨在捕捉强劲趋势中的�
 | **核心指标** | 3x3 DMA, 25x5 DMA | 3x3 DMA |
 | **进场信号** | 两次穿透 3x3 DMA | 强劲推力后首次回调触及 3x3 DMA |
 | **风险偏好** | 较高 (摸顶抄底) | 中等 (顺势回调) |
-| **主要止盈** | 斐波那契扩展 (COP/OP/XOP) | 前高或波段目标 |
+| **主要止盈** | 斐波那契扩展 (OP) | 推力高点 (Thrust High) |
+

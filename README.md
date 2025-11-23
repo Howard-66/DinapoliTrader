@@ -27,7 +27,8 @@
 - **可视化仪表盘**: 基于 Streamlit 的交互式界面，集成 Plotly 图表。
 - **性能分析**: 实时计算权益曲线 (Equity Curve)、回撤曲线 (Drawdown)、胜率、盈亏比等指标。
 - **动态风控 (Dynamic Risk)**:
-    - **ATR Stop Loss**: 基于波动率的动态止损。
+    - **多模式止损 (Multi-Mode SL)**: 支持 Pattern Based (形态), ATR Based (波动率), Fixed % (固定比例)。
+    - **多模式止盈 (Multi-Mode TP)**: 支持 Pattern Based (Fibonacci), Fixed % (固定比例)。
     - **Position Sizing**: 基于风险敞口的动态仓位管理。
 - **参数优化**: 内置网格搜索 (Grid Search) 优化器，寻找最佳止盈止损参数。
 
