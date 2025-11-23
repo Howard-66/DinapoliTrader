@@ -62,13 +62,47 @@ class DiNapoliStrategyWithSignals(bt.Strategy):
     """
     params = (
         ('signals', None), # pd.DataFrame with index as datetime and 'signal' column
+        ('stop_loss_pct', 0.02),
+        ('take_profit_pct', 0.05),
+        ('use_atr_sl', False),
+        ('atr_multiplier', 2.0),
+        ('risk_per_trade_pct', 0.01),
+        ('initial_capital', 100000.0),
+        ('use_dynamic_sizing', False),
     )
     
     def __init__(self):
         self.signals = self.params.signals
         self.order = None
+        self.stop_order = None
+        self.limit_order = None
+        
+        # ATR Indicator for dynamic SL
+        if self.params.use_atr_sl or self.params.use_dynamic_sizing:
+            self.atr = bt.indicators.ATR(self.data, period=14)
+
+    def notify_order(self, order):
+        if order.status in [order.Submitted, order.Accepted]:
+            return
+
+        if order.status in [order.Completed]:
+            if order.isbuy():
+                self.log(f'BUY EXECUTED, Price: {order.executed.price:.2f}, Cost: {order.executed.value:.2f}, Comm: {order.executed.comm:.2f}')
+            elif order.issell():
+                self.log(f'SELL EXECUTED, Price: {order.executed.price:.2f}, Cost: {order.executed.value:.2f}, Comm: {order.executed.comm:.2f}')
+            
+            self.bar_executed = len(self)
+
+        elif order.status in [order.Canceled, order.Margin, order.Rejected]:
+            self.log('Order Canceled/Margin/Rejected')
+
+        self.order = None
 
     def next(self):
+        # Check if we have an open position
+        # Note: With bracket orders, we might have pending child orders even if position is closed?
+        # Backtrader handles this if we use buy_bracket.
+        
         if self.order:
             return
             
@@ -77,17 +111,49 @@ class DiNapoliStrategyWithSignals(bt.Strategy):
         if self.signals is not None and dt in self.signals.index:
             sig = self.signals.loc[dt]
             if isinstance(sig, pd.Series):
-                sig = sig['signal'] # Handle duplicate index if any, though unlikely
+                sig = sig['signal'] 
             
-            if hasattr(sig, 'values'): # If multiple signals
+            if hasattr(sig, 'values'): 
                  sig = sig.iloc[0]
 
-            if sig == 'BUY':
-                self.log(f'BUY CREATE, {self.datas[0].close[0]}')
-                self.order = self.buy()
-            elif sig == 'SELL':
-                self.log(f'SELL CREATE, {self.datas[0].close[0]}')
-                self.order = self.sell()
+            if sig == 'BUY' and not self.position:
+                current_price = self.datas[0].close[0]
+                
+                # Calculate SL Price
+                sl_price = 0.0
+                if self.params.use_atr_sl:
+                    atr_val = self.atr[0]
+                    sl_price = current_price - (atr_val * self.params.atr_multiplier)
+                else:
+                    sl_price = current_price * (1.0 - self.params.stop_loss_pct)
+                
+                # Calculate TP Price
+                tp_price = current_price * (1.0 + self.params.take_profit_pct)
+                
+                # Calculate Position Size
+                size = 100 # Default
+                if self.params.use_dynamic_sizing:
+                    # Use RiskManager logic (re-implemented here or imported)
+                    # Risk Amount = Equity * Risk%
+                    # Risk Per Share = |Entry - SL|
+                    equity = self.broker.getvalue()
+                    risk_amount = equity * self.params.risk_per_trade_pct
+                    risk_per_share = abs(current_price - sl_price)
+                    if risk_per_share > 0:
+                        size = int(risk_amount / risk_per_share)
+                    else:
+                        size = 0
+                
+                if size > 0:
+                    self.log(f'BUY CREATE, {current_price:.2f} (SL: {sl_price:.2f}, TP: {tp_price:.2f}, Size: {size})')
+                    # Use Bracket Order
+                    self.buy_bracket(size=size, price=current_price, stopprice=sl_price, limitprice=tp_price)
+            
+            elif sig == 'SELL' and self.position:
+                 # If we have a sell signal and are long, close position
+                 # Note: Bracket orders usually handle exit, but a reverse signal might force exit
+                 self.log(f'SELL CREATE (Signal), {self.datas[0].close[0]}')
+                 self.close()
 
     def log(self, txt, dt=None):
         dt = dt or self.datas[0].datetime.date(0)

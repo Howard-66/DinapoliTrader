@@ -22,6 +22,7 @@ class PerformanceAnalyzer:
                           initial_capital: float = 100000.0,
                           use_dynamic_sizing: bool = False,
                           risk_per_trade_pct: float = 0.01,
+                          use_atr_sl: bool = False,
                           atr_multiplier: float = 2.0) -> dict:
         """
         Calculate trade metrics.
@@ -48,10 +49,12 @@ class PerformanceAnalyzer:
         
         # Pre-calculate ATR if needed
         atr_series = None
-        if use_dynamic_sizing:
+        if use_atr_sl or use_dynamic_sizing:
             atr_series = Indicators.atr(self.df['high'], self.df['low'], self.df['close'], 14)
         
         # Filter only Buy signals for now (as PatternRecognizer mainly does Buy Double Repo)
+        # Note: app.py should pass filtered signals, but we double check here if needed.
+        # We assume 'signals' df has 'signal' column with 'BUY'/'SELL'
         buy_signals = self.signals[self.signals['signal'] == 'BUY']
         
         if buy_signals.empty:
@@ -60,10 +63,11 @@ class PerformanceAnalyzer:
                 'Win Rate': 0.0,
                 'Avg Return': 0.0,
                 'Total Return': 0.0,
+                'Annualized Return': 0.0,
                 'Max Drawdown': 0.0,
-
                 'Equity Curve': pd.Series(initial_capital, index=self.df.index),
-                'Drawdown Curve': pd.Series(0.0, index=self.df.index)
+                'Drawdown Curve': pd.Series(0.0, index=self.df.index),
+                'Trade Log': pd.DataFrame()
             }
 
 
@@ -80,7 +84,7 @@ class PerformanceAnalyzer:
             
             # Determine Stop Loss Price
             sl_price = 0.0
-            if use_dynamic_sizing and atr_series is not None:
+            if use_atr_sl and atr_series is not None:
                 current_atr = atr_series.iloc[idx]
                 if np.isnan(current_atr):
                     current_atr = entry_price * 0.01 # Fallback
@@ -166,10 +170,11 @@ class PerformanceAnalyzer:
                 'Pattern': row.get('pattern', 'Unknown'),
                 'Entry Date': date, # Assuming entry on signal close
                 'Entry Price': entry_price,
+                'Stop Loss': sl_price,
+                'Take Profit': tp_price,
                 'Exit Date': final_exit_date if final_exit_date else date,
                 'Exit Price': exit_price,
                 'Quantity': quantity,
-                'PnL Amount': pnl_amount,
                 'PnL Amount': pnl_amount,
                 'PnL %': pnl_pct,
                 'Confidence': row.get('confidence', np.nan)

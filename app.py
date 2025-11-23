@@ -179,20 +179,51 @@ if st.session_state.analyzed and st.session_state.data is not None:
     signals_dr = recognizer.detect_double_repo()
     signals_sp = recognizer.detect_single_penetration()
     
+    # Strategy Selection
+    st.sidebar.header("Strategy Selection")
+    selected_strategies = st.sidebar.multiselect(
+        "Active Strategies",
+        ["Double Repo", "Single Penetration"],
+        default=["Double Repo"]
+    )
+    
     # Apply Trend Filter if enabled
     if enable_trend_filter:
         signals_dr = recognizer.apply_trend_filter(signals_dr, sma_200)
         signals_sp = recognizer.apply_trend_filter(signals_sp, sma_200)
     
-    # Merge signals
-    # Priority: Double Repo > Single Penetration (if overlap, though unlikely)
-    signals = signals_dr.copy()
-    signals.update(signals_sp) # This overwrites, which is fine. Or we can combine.
+    # Merge signals based on selection
+    signals = pd.DataFrame(index=df.index, columns=['signal', 'pattern'])
     
-    # Combine for display
-    # If DR has signal, keep DR. If DR is NaN and SP has signal, use SP.
-    mask_sp = (signals_dr['signal'].isna()) & (signals_sp['signal'].notna())
-    signals.loc[mask_sp] = signals_sp.loc[mask_sp]
+    if "Double Repo" in selected_strategies:
+        # Merge DR signals
+        mask_dr = signals_dr['signal'].notna()
+        signals.loc[mask_dr] = signals_dr.loc[mask_dr]
+        
+    if "Single Penetration" in selected_strategies:
+        # Merge SP signals. 
+        # Strategy: If DR already has a signal, we can overwrite or keep.
+        # Let's assume priority to DR if both happen (rare), or overwrite if we want latest.
+        # Here we simply fill where empty or overwrite if SP is present.
+        # To avoid conflict, let's say if DR exists, we keep DR.
+        mask_sp = signals_sp['signal'].notna()
+        # Only fill where signal is currently NaN to give DR priority
+        # Or just overwrite? Let's overwrite to show all.
+        # Actually, better to prioritize:
+        # If "Double Repo" is selected and present, keep it.
+        # If "Single Penetration" is selected and present, fill gaps.
+        
+        # Let's do:
+        # 1. Start with empty
+        # 2. If DR selected, fill DR
+        # 3. If SP selected, fill SP where NaN
+        
+        if "Double Repo" in selected_strategies:
+             mask_fill = (signals['signal'].isna()) & (signals_sp['signal'].notna())
+             signals.loc[mask_fill] = signals_sp.loc[mask_fill]
+        else:
+             signals.loc[mask_sp] = signals_sp.loc[mask_sp]
+
     
     # Add markers for signals (moved up to define buy_signals earlier)
     buy_signals = signals[signals['signal'] == 'BUY']
@@ -241,7 +272,8 @@ if st.session_state.analyzed and st.session_state.data is not None:
             initial_capital=initial_capital,
             use_dynamic_sizing=use_dynamic_sizing,
             risk_per_trade_pct=risk_per_trade,
-            atr_multiplier=atr_multiplier if use_atr_sl else 0.0
+            use_atr_sl=use_atr_sl,
+            atr_multiplier=atr_multiplier
         )
         equity_curve = metrics['Equity Curve']
         drawdown_curve = metrics['Drawdown Curve']
@@ -289,6 +321,8 @@ if st.session_state.analyzed and st.session_state.data is not None:
         st.write("Detailed Trade Log (Simulated):")
         st.dataframe(metrics['Trade Log'].style.format({
             'Entry Price': '{:.2f}',
+            'Stop Loss': '{:.2f}',
+            'Take Profit': '{:.2f}',
             'Exit Price': '{:.2f}',
             'PnL Amount': '{:.2f}',
             'PnL %': '{:.2%}',
