@@ -60,7 +60,9 @@ Thumbs.db
 examples/*.html
 *.html
 data/
+!src/data/
 logs/
 output/
 .env.local
 .env.*.local
+src/ml/signal_classifier.joblib

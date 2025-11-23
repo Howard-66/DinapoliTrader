@@ -49,3 +49,18 @@
 - [x] **Dynamic Risk Management**:
     - **ATR-based Stop Loss**: Adjust SL based on volatility.
     - **Dynamic Position Sizing**: Risk-based sizing (e.g., 1% risk per trade).
+
+## Phase 6: Core Optimization & Advanced Analytics (Weeks 15-18)
+**Goal:** Deepen the strategy's robustness and analytical capabilities.
+- [ ] **Multi-Timeframe Analysis (MTF)**:
+    - **Trend Confirmation**: Confirm Daily signals with Weekly trend direction.
+    - **MTF Dashboard**: View Weekly/Monthly charts alongside Daily.
+- [ ] **Market Scanner (Batch Analysis)**:
+    - **Sector Scan**: Scan lists of symbols (e.g., CSI 300, SP 500) for active signals.
+    - **Opportunity Table**: Dashboard view ranking top opportunities by ML Confidence.
+- [ ] **Advanced ML Insights**:
+    - **Feature Importance**: Visualize which factors (RSI, DMA, Volatility) drive the model's decisions.
+    - **Model Management**: Save/Load distinct models for different asset classes.
+- [ ] **Robust Backtesting**:
+    - **Walk-Forward Analysis**: Validate parameters over rolling time windows.
+    - **Detailed Reporting**: Monthly returns heatmap, Sharpe/Sortino ratios.
