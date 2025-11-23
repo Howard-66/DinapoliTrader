@@ -75,7 +75,7 @@ class ModelTrainer:
                         
             y.append(label)
             
-        return np.array(X), np.array(y), features_df.columns
+        return pd.DataFrame(X, columns=features_df.columns), np.array(y), features_df.columns
         
     def train(self, df: pd.DataFrame, signals: pd.DataFrame):
         """

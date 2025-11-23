@@ -49,6 +49,14 @@ class SignalClassifier:
         # Here we rely on FeatureExtractor returning consistent dict keys.
         
         try:
+            # Check if model expects feature names (sklearn 1.0+)
+            if hasattr(self.model, 'feature_names_in_'):
+                # Model has feature names, pass DataFrame
+                pass
+            else:
+                # Legacy model or trained on numpy array: convert to array to avoid warning
+                X = X.values
+                
             prob = self.model.predict_proba(X)[0][1] # Probability of class 1
             return prob
         except Exception as e:

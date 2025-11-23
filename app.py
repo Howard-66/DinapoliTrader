@@ -36,80 +36,71 @@ if 'analyzed' not in st.session_state:
 
 # Strategy Parameters (Always visible)
 st.sidebar.markdown("---")
-st.sidebar.header("Strategy Parameters")
-# Use session state keys for persistence and programmatic updates
+st.sidebar.header("Exit Strategy")
+
+# Use session state keys for persistence
+if 'sl_mode' not in st.session_state: st.session_state.sl_mode = 'Pattern Based'
+if 'tp_mode' not in st.session_state: st.session_state.tp_mode = 'Pattern Based (Fib)'
 if 'holding_period' not in st.session_state: st.session_state.holding_period = 5
 if 'stop_loss' not in st.session_state: st.session_state.stop_loss = 2.0
 if 'take_profit' not in st.session_state: st.session_state.take_profit = 5.0
+if 'atr_multiplier' not in st.session_state: st.session_state.atr_multiplier = 2.0
 
+# Stop Loss Configuration
+st.sidebar.subheader("Stop Loss")
+sl_mode = st.sidebar.selectbox(
+    "Stop Loss Mode",
+    ["Pattern Based", "ATR Based", "Fixed Percentage"],
+    index=["Pattern Based", "ATR Based", "Fixed Percentage"].index(st.session_state.sl_mode),
+    key='sl_mode_input'
+)
+
+stop_loss = 0.02 # Default
+atr_multiplier = 2.0 # Default
+
+if sl_mode == "Fixed Percentage":
+    stop_loss = st.sidebar.number_input("Stop Loss (%)", min_value=0.1, value=st.session_state.stop_loss, step=0.1, key='stop_loss_input') / 100
+elif sl_mode == "ATR Based":
+    atr_multiplier = st.sidebar.number_input("ATR Multiplier", 1.0, 5.0, st.session_state.atr_multiplier, 0.5, key='atr_multiplier_input')
+
+# Take Profit Configuration
+st.sidebar.subheader("Take Profit")
+tp_mode = st.sidebar.selectbox(
+    "Take Profit Mode",
+    ["Pattern Based (Fib)", "Fixed Percentage"],
+    index=["Pattern Based (Fib)", "Fixed Percentage"].index(st.session_state.tp_mode),
+    key='tp_mode_input'
+)
+
+take_profit = 0.05 # Default
+
+if tp_mode == "Fixed Percentage":
+    take_profit = st.sidebar.number_input("Take Profit (%)", min_value=0.1, value=st.session_state.take_profit, step=0.1, key='take_profit_input') / 100
+
+# Time Exit
+st.sidebar.subheader("Time Exit")
 holding_period = st.sidebar.number_input("Holding Period (Bars)", min_value=1, value=st.session_state.holding_period, key='holding_period_input')
-stop_loss = st.sidebar.number_input("Stop Loss (%)", min_value=0.1, value=st.session_state.stop_loss, step=0.1, key='stop_loss_input') / 100
-take_profit = st.sidebar.number_input("Take Profit (%)", min_value=0.1, value=st.session_state.take_profit, step=0.1, key='take_profit_input') / 100
+
+# Risk Management (Sizing)
+st.sidebar.subheader("Position Sizing")
+initial_capital = st.sidebar.number_input("Initial Capital", value=100000.0, step=1000.0)
+use_dynamic_sizing = st.sidebar.checkbox("Use Dynamic Position Sizing", value=False)
+risk_per_trade = 0.01
+if use_dynamic_sizing:
+    risk_per_trade = st.sidebar.number_input("Risk per Trade (%)", 0.1, 5.0, 1.0, 0.1) / 100
+
 enable_trend_filter = st.sidebar.checkbox("Enable Trend Filter (SMA 200)", value=False)
 
-# Sync inputs back to session state (if changed manually)
-st.session_state.holding_period = st.session_state.holding_period_input
-st.session_state.stop_loss = st.session_state.stop_loss_input
-st.session_state.take_profit = st.session_state.take_profit_input
-
-# --- Optimizer Section ---
-with st.sidebar.expander("⚙️ Strategy Optimizer"):
-    st.write("Parameter Ranges:")
-    opt_sl_min = st.number_input("Min Stop Loss %", 0.5, 5.0, 1.0, 0.5)
-    opt_sl_max = st.number_input("Max Stop Loss %", 0.5, 5.0, 3.0, 0.5)
-    opt_tp_min = st.number_input("Min Take Profit %", 1.0, 10.0, 3.0, 1.0)
-    opt_tp_max = st.number_input("Max Take Profit %", 1.0, 10.0, 7.0, 1.0)
-    
-    if st.button("Run Optimization"):
-        if st.session_state.analyzed and st.session_state.data is not None:
-            with st.spinner("Optimizing..."):
-                # Define Grid
-                # Simple grid: 3 steps for each
-                import numpy as np
-                sl_range = np.linspace(opt_sl_min, opt_sl_max, 3) / 100
-                tp_range = np.linspace(opt_tp_min, opt_tp_max, 3) / 100
-                hp_range = [3, 5, 8]
-                
-                param_grid = {
-                    'holding_period': hp_range,
-                    'stop_loss': sl_range,
-                    'take_profit': tp_range
-                }
-                
-                # We need signals for optimization. 
-                # Re-detect signals to be safe (fast enough)
-                opt_df = st.session_state.data
-                opt_recognizer = PatternRecognizer(opt_df)
-                opt_signals = opt_recognizer.detect_double_repo() # Optimize on DR for now
-                # Merge SP if needed, but let's stick to DR for core optimization or both
-                opt_signals_sp = opt_recognizer.detect_single_penetration()
-                opt_signals.update(opt_signals_sp)
-                
-                optimizer = StrategyOptimizer(opt_df, opt_signals)
-                results = optimizer.grid_search(param_grid)
-                
-                st.session_state.opt_results = results
-                st.toast("Optimization Complete!", icon="🚀")
-        else:
-            st.error("Please run analysis first.")
-
-if 'opt_results' in st.session_state and not st.session_state.opt_results.empty:
-    st.sidebar.markdown("---")
-    st.sidebar.write("Top Result:")
-    best = st.session_state.opt_results.iloc[0]
-    st.sidebar.write(f"Return: {best['Total Return']:.2%}")
-    st.sidebar.write(f"SL: {best['stop_loss']:.1%}, TP: {best['take_profit']:.1%}")
-    
-    def apply_best_params():
-        st.session_state.holding_period_input = int(best['holding_period'])
-        st.session_state.stop_loss_input = float(best['stop_loss'] * 100)
-        st.session_state.take_profit_input = float(best['take_profit'] * 100)
-        # Also update the sync variables
-        st.session_state.holding_period = int(best['holding_period'])
-        st.session_state.stop_loss = float(best['stop_loss'] * 100)
-        st.session_state.take_profit = float(best['take_profit'] * 100)
-
-    st.sidebar.button("Apply Best Params", on_click=apply_best_params)
+# Sync inputs back to session state
+st.session_state.sl_mode = sl_mode
+st.session_state.tp_mode = tp_mode
+st.session_state.holding_period = holding_period
+if sl_mode == "Fixed Percentage":
+    st.session_state.stop_loss = stop_loss * 100
+if sl_mode == "ATR Based":
+    st.session_state.atr_multiplier = atr_multiplier
+if tp_mode == "Fixed Percentage":
+    st.session_state.take_profit = take_profit * 100
 
 # --- ML Lab Section ---
 with st.sidebar.expander("🧪 ML Lab"):
@@ -136,14 +127,6 @@ with st.sidebar.expander("🧪 ML Lab"):
             st.error("Load data first.")
             
     min_confidence = st.slider("Min Confidence", 0.0, 1.0, 0.5, 0.05)
-
-# --- Risk Management Section ---
-with st.sidebar.expander("🛡️ Risk Management"):
-    initial_capital = st.number_input("Initial Capital", value=100000.0, step=1000.0)
-    use_dynamic_sizing = st.checkbox("Use Dynamic Position Sizing", value=False)
-    risk_per_trade = st.number_input("Risk per Trade (%)", 0.1, 5.0, 1.0, 0.1) / 100
-    use_atr_sl = st.checkbox("Use ATR Stop Loss", value=False)
-    atr_multiplier = st.number_input("ATR Multiplier", 1.0, 5.0, 2.0, 0.5)
 
 if st.sidebar.button("Analyze"):
     with st.spinner("Fetching Data..."):
@@ -193,7 +176,7 @@ if st.session_state.analyzed and st.session_state.data is not None:
         signals_sp = recognizer.apply_trend_filter(signals_sp, sma_200)
     
     # Merge signals based on selection
-    signals = pd.DataFrame(index=df.index, columns=['signal', 'pattern'])
+    signals = pd.DataFrame(index=df.index, columns=['signal', 'pattern', 'pattern_sl', 'pattern_tp'])
     
     if "Double Repo" in selected_strategies:
         # Merge DR signals
@@ -240,6 +223,9 @@ if st.session_state.analyzed and st.session_state.data is not None:
                     probs.append(prob)
                 else:
                     probs.append(0.5)
+            
+            # Fix SettingWithCopyWarning
+            buy_signals = buy_signals.copy()
             buy_signals['confidence'] = probs
             
             # Filter by confidence
@@ -256,6 +242,7 @@ if st.session_state.analyzed and st.session_state.data is not None:
             # Re-filter buy_signals for display
             buy_signals = buy_signals[buy_signals['confidence'] >= min_confidence]
         else:
+            buy_signals = buy_signals.copy()
             buy_signals['confidence'] = 0.5 # Default if no model
 
     # Performance Metrics Calculation
@@ -267,12 +254,13 @@ if st.session_state.analyzed and st.session_state.data is not None:
         perf_analyzer = PerformanceAnalyzer(df, signals)
         metrics = perf_analyzer.calculate_metrics(
             holding_period=holding_period, 
+            sl_mode='Pattern' if sl_mode == 'Pattern Based' else ('ATR' if sl_mode == 'ATR Based' else 'Fixed'),
+            tp_mode='Pattern' if tp_mode == 'Pattern Based (Fib)' else 'Fixed',
             stop_loss_pct=stop_loss, 
             take_profit_pct=take_profit,
             initial_capital=initial_capital,
             use_dynamic_sizing=use_dynamic_sizing,
             risk_per_trade_pct=risk_per_trade,
-            use_atr_sl=use_atr_sl,
             atr_multiplier=atr_multiplier
         )
         equity_curve = metrics['Equity Curve']

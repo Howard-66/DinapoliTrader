@@ -62,9 +62,10 @@ class DiNapoliStrategyWithSignals(bt.Strategy):
     """
     params = (
         ('signals', None), # pd.DataFrame with index as datetime and 'signal' column
+        ('sl_mode', 'Fixed'), # 'Pattern', 'ATR', 'Fixed'
+        ('tp_mode', 'Fixed'), # 'Pattern', 'Fixed'
         ('stop_loss_pct', 0.02),
         ('take_profit_pct', 0.05),
-        ('use_atr_sl', False),
         ('atr_multiplier', 2.0),
         ('risk_per_trade_pct', 0.01),
         ('initial_capital', 100000.0),
@@ -78,7 +79,7 @@ class DiNapoliStrategyWithSignals(bt.Strategy):
         self.limit_order = None
         
         # ATR Indicator for dynamic SL
-        if self.params.use_atr_sl or self.params.use_dynamic_sizing:
+        if self.params.sl_mode == 'ATR' or self.params.use_dynamic_sizing:
             self.atr = bt.indicators.ATR(self.data, period=14)
 
     def notify_order(self, order):
@@ -109,28 +110,52 @@ class DiNapoliStrategyWithSignals(bt.Strategy):
         dt = self.datas[0].datetime.datetime(0)
         
         if self.signals is not None and dt in self.signals.index:
-            sig = self.signals.loc[dt]
-            if isinstance(sig, pd.Series):
-                sig = sig['signal'] 
+            sig_row = self.signals.loc[dt]
+            # Handle if multiple rows (shouldn't happen with unique index)
+            if isinstance(sig_row, pd.DataFrame):
+                sig_row = sig_row.iloc[0]
+                
+            sig = sig_row['signal']
             
-            if hasattr(sig, 'values'): 
-                 sig = sig.iloc[0]
+            if pd.isna(sig):
+                return
 
             if sig == 'BUY' and not self.position:
                 current_price = self.datas[0].close[0]
                 
-                # Calculate SL Price
+                # --- Calculate SL Price ---
                 sl_price = 0.0
-                if self.params.use_atr_sl:
+                
+                if self.params.sl_mode == 'Pattern':
+                    # Try to get pattern_sl from signals
+                    if 'pattern_sl' in sig_row and not pd.isna(sig_row['pattern_sl']):
+                        sl_price = sig_row['pattern_sl']
+                    else:
+                        # Fallback to Fixed if missing
+                        sl_price = current_price * (1.0 - self.params.stop_loss_pct)
+                        
+                elif self.params.sl_mode == 'ATR':
                     atr_val = self.atr[0]
                     sl_price = current_price - (atr_val * self.params.atr_multiplier)
-                else:
+                    
+                else: # Fixed
                     sl_price = current_price * (1.0 - self.params.stop_loss_pct)
                 
-                # Calculate TP Price
-                tp_price = current_price * (1.0 + self.params.take_profit_pct)
+                # --- Calculate TP Price ---
+                tp_price = 0.0
                 
-                # Calculate Position Size
+                if self.params.tp_mode == 'Pattern':
+                     # Try to get pattern_tp from signals
+                    if 'pattern_tp' in sig_row and not pd.isna(sig_row['pattern_tp']):
+                        tp_price = sig_row['pattern_tp']
+                    else:
+                        # Fallback to Fixed if missing
+                        tp_price = current_price * (1.0 + self.params.take_profit_pct)
+                        
+                else: # Fixed
+                    tp_price = current_price * (1.0 + self.params.take_profit_pct)
+                
+                # --- Calculate Position Size ---
                 size = 100 # Default
                 if self.params.use_dynamic_sizing:
                     # Use RiskManager logic (re-implemented here or imported)

@@ -17,28 +17,16 @@ class PerformanceAnalyzer:
 
     def calculate_metrics(self, 
                           holding_period: int = 5, 
+                          sl_mode: str = 'Fixed',
+                          tp_mode: str = 'Fixed',
                           stop_loss_pct: float = 0.02, 
                           take_profit_pct: float = 0.05,
                           initial_capital: float = 100000.0,
                           use_dynamic_sizing: bool = False,
                           risk_per_trade_pct: float = 0.01,
-                          use_atr_sl: bool = False,
                           atr_multiplier: float = 2.0) -> dict:
         """
         Calculate trade metrics.
-        
-        Returns:
-            dict: {
-                'Total Trades': int,
-                'Win Rate': float,
-                'Avg Return': float,
-                'Total Return': float,
-                'Annualized Return': float,
-                'Max Drawdown': float,
-                'Equity Curve': pd.Series,
-                'Drawdown Curve': pd.Series,
-                'Trade Log': pd.DataFrame
-            }
         """
         trades = []
         trade_log_data = []
@@ -49,7 +37,7 @@ class PerformanceAnalyzer:
         
         # Pre-calculate ATR if needed
         atr_series = None
-        if use_atr_sl or use_dynamic_sizing:
+        if sl_mode == 'ATR' or use_dynamic_sizing:
             atr_series = Indicators.atr(self.df['high'], self.df['low'], self.df['close'], 14)
         
         # Filter only Buy signals for now (as PatternRecognizer mainly does Buy Double Repo)
@@ -82,25 +70,39 @@ class PerformanceAnalyzer:
                 
             entry_price = self.df['close'].iloc[idx]
             
-            # Determine Stop Loss Price
+            # --- Determine Stop Loss Price ---
             sl_price = 0.0
-            if use_atr_sl and atr_series is not None:
+            
+            if sl_mode == 'Pattern':
+                if 'pattern_sl' in row and not pd.isna(row['pattern_sl']):
+                    sl_price = row['pattern_sl']
+                else:
+                    sl_price = entry_price * (1 - stop_loss_pct)
+                    
+            elif sl_mode == 'ATR' and atr_series is not None:
                 current_atr = atr_series.iloc[idx]
                 if np.isnan(current_atr):
                     current_atr = entry_price * 0.01 # Fallback
                 sl_price = RiskManager.calculate_atr_stop_loss(entry_price, current_atr, atr_multiplier, 'BUY')
-            else:
+                
+            else: # Fixed
                 sl_price = entry_price * (1 - stop_loss_pct)
                 
-            # Determine Position Size
+            # --- Determine Position Size ---
             quantity = 100 # Default
             if use_dynamic_sizing:
                 quantity = RiskManager.calculate_position_size(current_capital, risk_per_trade_pct, entry_price, sl_price)
             
-            # Determine Take Profit Price (based on R:R or fixed %)
-            # If using ATR SL, let's assume fixed TP % for simplicity or 2x Risk
-            # For now keeping fixed TP % logic but relative to entry
-            tp_price = entry_price * (1 + take_profit_pct)
+            # --- Determine Take Profit Price ---
+            tp_price = 0.0
+            
+            if tp_mode == 'Pattern':
+                if 'pattern_tp' in row and not pd.isna(row['pattern_tp']):
+                    tp_price = row['pattern_tp']
+                else:
+                    tp_price = entry_price * (1 + take_profit_pct)
+            else: # Fixed
+                tp_price = entry_price * (1 + take_profit_pct)
             
             # Simulate trade
             exit_price = entry_price
