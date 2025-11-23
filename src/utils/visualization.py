@@ -8,17 +8,22 @@ class Visualizer:
     """
 
     @staticmethod
+    @staticmethod
     def plot_chart(df: pd.DataFrame, 
                    indicators: dict = None, 
                    equity: pd.Series = None,
                    drawdown: pd.Series = None,
+                   trades: pd.DataFrame = None,
                    title: str = "DiNapoli Chart"):
         """
-        Create an interactive candlestick chart with indicators.
+        Create an interactive chart with indicators and trade execution lines.
         
         Args:
             df (pd.DataFrame): OHLCV data.
             indicators (dict): Dictionary of {name: series} to plot on the chart.
+            equity (pd.Series): Equity curve.
+            drawdown (pd.Series): Drawdown curve.
+            trades (pd.DataFrame): Trade log containing Entry/Exit Date/Price and PnL.
             title (str): Chart title.
             
         Returns:
@@ -38,14 +43,17 @@ class Visualizer:
                             vertical_spacing=0.03, subplot_titles=subplot_titles,
                             row_heights=row_heights)
 
-        # Candlestick
-        fig.add_trace(go.Candlestick(
+        # Area Chart (using Close price)
+        # Using Scatter with fill='tozeroy' creates an area chart
+        # To make it look nice, we often use a gradient or semi-transparent fill
+        fig.add_trace(go.Scatter(
             x=df.index,
-            open=df['open'],
-            high=df['high'],
-            low=df['low'],
-            close=df['close'],
-            name='OHLC'
+            y=df['close'],
+            name='Price',
+            mode='lines',
+            line=dict(color='rgba(150, 150, 150, 0.5)', width=2),
+            fill='tozeroy',
+            fillcolor='rgba(150, 150, 150, 0.1)'
         ), row=1, col=1)
 
         # Indicators
@@ -62,8 +70,29 @@ class Visualizer:
         fig.add_trace(go.Bar(
             x=df.index,
             y=df['volume'],
-            name='Volume'
+            name='Volume',
+            marker_color='rgba(100, 100, 100, 0.5)'
         ), row=2, col=1)
+
+        # Trade Execution Lines
+        if trades is not None and not trades.empty:
+            for _, trade in trades.iterrows():
+                # Determine color based on PnL
+                color = 'green' if trade['PnL Amount'] > 0 else 'red'
+                
+                # Draw Line Segment
+                fig.add_trace(go.Scatter(
+                    x=[trade['Entry Date'], trade['Exit Date']],
+                    y=[trade['Entry Price'], trade['Exit Price']],
+                    mode='lines+markers',
+                    line=dict(color=color, width=2, dash='dash'),
+                    # marker=dict(size=6, symbol=['circle', 'x']), # Circle for entry, X for exit
+                    marker=dict(size=4, symbol=['circle', 'circle']), # Circle for entry, X for exit
+                    name=f"Trade {trade['PnL %']:.1%}",
+                    showlegend=False, # Too many trades will clutter legend
+                    hoverinfo='text',
+                    text=f"PnL: {trade['PnL Amount']:.2f} ({trade['PnL %']:.2%})"
+                ), row=1, col=1)
 
         # Equity & Drawdown
         if equity is not None and drawdown is not None:
@@ -84,8 +113,9 @@ class Visualizer:
 
         fig.update_layout(
             xaxis_rangeslider_visible=False,
-            height=800,
-            template='plotly_dark'
+            height=900, # Increased height slightly
+            template='plotly_dark',
+            hovermode='x unified'
         )
         
         return fig

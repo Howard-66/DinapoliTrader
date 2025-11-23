@@ -279,25 +279,21 @@ if st.session_state.analyzed and st.session_state.data is not None:
         drawdown_curve = metrics['Drawdown Curve']
 
     # Visualization
-    indicators = {
-        'DMA 3x3': dma_3x3,
-        'DMA 7x5': dma_7x5,
-        'DMA 25x5': dma_25x5
-    }
+    indicators = {}
     if enable_trend_filter:
         indicators['SMA 200'] = sma_200
     
-    fig = Visualizer.plot_chart(df, indicators, equity=equity_curve, drawdown=drawdown_curve, title=f"{symbol} DiNapoli Analysis")
+    fig = Visualizer.plot_chart(df, indicators, equity=equity_curve, drawdown=drawdown_curve, trades=metrics['Trade Log'] if metrics else None, title=f"{symbol} DiNapoli Analysis")
     
     # Add markers for signals
     buy_signals_dr = signals[(signals['signal'] == 'BUY') & (signals['pattern'] == 'Double Repo')]
     buy_signals_sp = signals[(signals['signal'] == 'BUY') & (signals['pattern'] == 'Single Penetration')]
     
     if not buy_signals_dr.empty:
-        fig.add_scatter(x=buy_signals_dr.index, y=df.loc[buy_signals_dr.index, 'low']*0.99, mode='markers', marker=dict(color='green', size=10, symbol='triangle-up'), name='Double Repo Buy')
+        fig.add_scatter(x=buy_signals_dr.index, y=df.loc[buy_signals_dr.index, 'low']*0.99, mode='markers', marker=dict(color='green', size=5, symbol='triangle-up'), name='Double Repo Buy')
         
     if not buy_signals_sp.empty:
-        fig.add_scatter(x=buy_signals_sp.index, y=df.loc[buy_signals_sp.index, 'low']*0.99, mode='markers', marker=dict(color='blue', size=8, symbol='triangle-up'), name='Single Pen. Buy')
+        fig.add_scatter(x=buy_signals_sp.index, y=df.loc[buy_signals_sp.index, 'low']*0.99, mode='markers', marker=dict(color='blue', size=5, symbol='triangle-up'), name='Single Pen. Buy')
         
     st.plotly_chart(fig, width='stretch')
     
