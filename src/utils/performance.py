@@ -227,6 +227,51 @@ class PerformanceAnalyzer:
         else:
             annualized_return = 0.0
 
+        # Calculate Advanced Metrics
+        daily_returns = equity_curve.pct_change().dropna()
+        
+        # Sharpe Ratio (assuming 0 risk-free rate for simplicity)
+        if daily_returns.std() != 0:
+            sharpe_ratio = (daily_returns.mean() / daily_returns.std()) * np.sqrt(252)
+        else:
+            sharpe_ratio = 0.0
+            
+        # Sortino Ratio
+        downside_returns = daily_returns[daily_returns < 0]
+        if downside_returns.std() != 0:
+            sortino_ratio = (daily_returns.mean() / downside_returns.std()) * np.sqrt(252)
+        else:
+            sortino_ratio = 0.0
+            
+        # Profit Factor
+        gross_profit = trades_np[trades_np > 0].sum() if len(trades_np[trades_np > 0]) > 0 else 0.0
+        gross_loss = abs(trades_np[trades_np < 0].sum()) if len(trades_np[trades_np < 0]) > 0 else 0.0
+        
+        if gross_loss > 0:
+            profit_factor = gross_profit / gross_loss
+        else:
+            profit_factor = float('inf') if gross_profit > 0 else 0.0
+
+        # Calculate Monthly Returns
+        monthly_returns_series = equity_curve.resample('M').last().pct_change()
+        # Handle first month (if it starts mid-month, pct_change might be NaN or relative to 0)
+        # Actually, equity curve starts at initial capital.
+        # pct_change() first element is NaN. We need to fill it.
+        # The first month's return is (End Value / Initial Capital) - 1
+        first_month_idx = monthly_returns_series.index[0]
+        monthly_returns_series.iloc[0] = (equity_curve.resample('M').last().iloc[0] - initial_capital) / initial_capital
+        
+        # Create Pivot Table for Heatmap (Year x Month)
+        monthly_returns_df = pd.DataFrame({
+            'Year': monthly_returns_series.index.year,
+            'Month': monthly_returns_series.index.month,
+            'Return': monthly_returns_series.values
+        })
+        monthly_returns_matrix = monthly_returns_df.pivot(index='Year', columns='Month', values='Return')
+        
+        # Fill missing months with 0.0
+        monthly_returns_matrix = monthly_returns_matrix.fillna(0.0)
+
         return {
             'Total Trades': len(trades),
             'Win Rate': win_rate,
@@ -234,7 +279,11 @@ class PerformanceAnalyzer:
             'Total Return': total_return,
             'Annualized Return': annualized_return,
             'Max Drawdown': max_drawdown,
+            'Sharpe Ratio': sharpe_ratio,
+            'Sortino Ratio': sortino_ratio,
+            'Profit Factor': profit_factor,
             'Equity Curve': equity_curve,
             'Drawdown Curve': drawdown_curve,
+            'Monthly Returns': monthly_returns_matrix,
             'Trade Log': pd.DataFrame(trade_log_data)
         }

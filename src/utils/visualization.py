@@ -121,3 +121,53 @@ class Visualizer:
         )
         
         return fig
+
+    @staticmethod
+    def plot_heatmap(monthly_returns: pd.DataFrame, title: str = "Monthly Returns Heatmap"):
+        """
+        Plots a heatmap of monthly returns.
+        
+        Args:
+            monthly_returns (pd.DataFrame): Matrix of returns (Year x Month).
+            title (str): Chart title.
+            
+        Returns:
+            plotly.graph_objects.Figure
+        """
+        import plotly.graph_objects as go
+        
+        # Month names for x-axis
+        month_names = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec']
+        
+        # Ensure columns are 1-12 and reindex if necessary
+        # The input df has columns 1, 2, ... 12 (integers)
+        # We map them to names for display
+        
+        z = monthly_returns.values
+        x = month_names
+        y = monthly_returns.index
+        
+        # Create annotation text (percentage)
+        z_text = [[f"{val:.1%}" for val in row] for row in z]
+        
+        fig = go.Figure(data=go.Heatmap(
+            z=z,
+            x=x,
+            y=y,
+            colorscale='RdYlGn',
+            zmid=0.0,
+            text=z_text,
+            texttemplate="%{text}",
+            textfont={"size": 10},
+            hoverongaps=False
+        ))
+        
+        fig.update_layout(
+            title=title,
+            xaxis_nticks=12,
+            yaxis_nticks=len(y),
+            height=400 + (len(y) * 20), # Dynamic height based on years
+            margin=dict(t=50, b=20, l=50, r=50)
+        )
+        
+        return fig
