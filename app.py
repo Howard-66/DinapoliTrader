@@ -16,7 +16,9 @@ from src.ml.llm_analyst import LLMAnalyst
 from src.utils.performance import PerformanceAnalyzer
 from src.utils.performance import PerformanceAnalyzer
 from src.optimization.optimizer import StrategyOptimizer
+from src.optimization.optimizer import StrategyOptimizer
 from src.ml.trainer import ModelTrainer
+from src.utils.scanner import MarketScanner
 
 st.set_page_config(page_title="DiNapoli Trader", layout="wide")
 
@@ -24,7 +26,10 @@ st.set_page_config(page_title="DiNapoli Trader", layout="wide")
 
 # Sidebar
 st.sidebar.header("Configuration")
-symbol = st.sidebar.text_input("Symbol", "601398.SH")
+mode = st.sidebar.radio("Mode", ["Single Analysis", "Market Scanner"])
+
+if mode == "Single Analysis":
+    symbol = st.sidebar.text_input("Symbol", "601398.SH")
 start_date = st.sidebar.date_input("Start Date", pd.to_datetime("2015-01-01"))
 end_date = st.sidebar.date_input("End Date", pd.to_datetime("today"))
 
@@ -129,20 +134,70 @@ with st.sidebar.expander("🧪 ML Lab"):
             
     min_confidence = st.slider("Min Confidence", 0.0, 1.0, 0.5, 0.05)
 
-if st.sidebar.button("Analyze"):
-    with st.spinner("Fetching Data..."):
-        feed = DataFeed()
-        try:
-            df = feed.fetch_data(symbol, str(start_date), str(end_date))
-            if not df.empty:
-                st.session_state.data = df
-                st.session_state.analyzed = True
-                st.toast(f"Loaded {len(df)} bars for {symbol}", icon="✅")
-            else:
-                st.warning("No data found.")
-        except Exception as e:
-            st.error(f"Error fetching data: {e}")
+if mode == "Single Analysis":
+    if st.sidebar.button("Analyze"):
+        with st.spinner("Fetching Data..."):
+            feed = DataFeed()
+            try:
+                df = feed.fetch_data(symbol, str(start_date), str(end_date))
+                if not df.empty:
+                    st.session_state.data = df
+                    st.session_state.analyzed = True
+                    st.toast(f"Loaded {len(df)} bars for {symbol}", icon="✅")
+                else:
+                    st.warning("No data found.")
+            except Exception as e:
+                st.error(f"Error fetching data: {e}")
 
+elif mode == "Market Scanner":
+    st.title("Market Scanner 🔍")
+    st.write("Scan multiple symbols for DiNapoli patterns.")
+    
+    # Input for symbols
+    default_symbols = "688981.SH, 601398.SH, 601111.SH, 600036.SH, 002714.SZ, 300088.SZ, 601688.SH"
+    symbols_input = st.text_area("Enter Symbols (comma separated)", default_symbols, height=100)
+    
+    c1, c2 = st.columns(2)
+    with c1:
+        lookback = st.number_input("Lookback Days", min_value=30, max_value=365, value=200)
+    with c2:
+        scan_window = st.number_input("Scan Window (Bars)", min_value=1, max_value=20, value=5, help="Number of recent bars to check for signals.")
+    
+    if st.button("Scan Market"):
+        symbols_list = [s.strip() for s in symbols_input.split(',') if s.strip()]
+        
+        if symbols_list:
+            scanner = MarketScanner()
+            progress_bar = st.progress(0)
+            status_text = st.empty()
+            
+            # We can't easily hook into the scanner loop for progress without modifying scanner to yield
+            # So we'll just show a spinner for now, or modify scanner later.
+            # For now, just run it.
+            
+            with st.spinner(f"Scanning {len(symbols_list)} symbols..."):
+                results = scanner.scan(symbols_list, lookback_days=lookback, scan_window=scan_window)
+                
+            if not results.empty:
+                st.success(f"Found {len(results)} active signals!")
+                
+                # Style the dataframe
+                st.dataframe(results.style.applymap(
+                    lambda x: 'color: green' if x == 'BUY' else 'color: red', subset=['Signal']
+                ).format({
+                    'Close': '{:.2f}',
+                    'SL': '{:.2f}',
+                    'TP': '{:.2f}',
+                    'Confidence': '{:.2%}'
+                }))
+            else:
+                st.info("No active signals found in the provided list.")
+        else:
+            st.warning("Please enter at least one symbol.")
+    
+    st.stop()
+
+# Only show Single Analysis content if mode is Single Analysis
 if st.session_state.analyzed and st.session_state.data is not None:
     df = st.session_state.data
     
