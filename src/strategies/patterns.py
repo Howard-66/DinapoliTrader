@@ -114,6 +114,43 @@ class PatternRecognizer:
         
         return filtered_signals
 
+    def apply_mtf_filter(self, signals: pd.DataFrame, weekly_df: pd.DataFrame) -> pd.DataFrame:
+        """
+        Apply Multi-Timeframe Filter.
+        Filter Daily signals based on Weekly Trend (Close > Weekly 25x5 DMA).
+        """
+        if weekly_df is None or weekly_df.empty:
+            return signals
+            
+        # Calculate Weekly DMA 25x5
+        weekly_dma25 = Indicators.displaced_ma(weekly_df['close'], 25, 5)
+        
+        # Determine Weekly Trend
+        # 1 = Bullish, -1 = Bearish
+        weekly_trend = pd.Series(0, index=weekly_df.index)
+        weekly_trend[weekly_df['close'] > weekly_dma25] = 1
+        weekly_trend[weekly_df['close'] < weekly_dma25] = -1
+        
+        # Resample Weekly Trend to Daily (ffill)
+        # Reindex to match daily df
+        daily_trend = weekly_trend.reindex(self.df.index, method='ffill')
+        
+        filtered_signals = signals.copy()
+        
+        # Filter BUYs (Require Weekly Bullish)
+        buy_mask = (filtered_signals['signal'] == 'BUY')
+        trend_ok = (daily_trend == 1)
+        filtered_signals.loc[buy_mask & (~trend_ok), 'signal'] = np.nan
+        filtered_signals.loc[buy_mask & (~trend_ok), 'pattern'] = np.nan
+        
+        # Filter SELLs (Require Weekly Bearish)
+        sell_mask = (filtered_signals['signal'] == 'SELL')
+        trend_ok_sell = (daily_trend == -1)
+        filtered_signals.loc[sell_mask & (~trend_ok_sell), 'signal'] = np.nan
+        filtered_signals.loc[sell_mask & (~trend_ok_sell), 'pattern'] = np.nan
+        
+        return filtered_signals
+
     def detect_single_penetration(self, thrust_bars: int = 8) -> pd.DataFrame:
         """
         检测 Single Penetration (Bread & Butter) 模式。

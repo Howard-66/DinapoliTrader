@@ -164,6 +164,28 @@ class DataFeed:
         
         return df[['open', 'high', 'low', 'close', 'volume']]
 
+    @staticmethod
+    def resample_to_weekly(df: pd.DataFrame) -> pd.DataFrame:
+        """
+        Resample daily data to weekly.
+        """
+        if df.empty:
+            return df
+            
+        logic = {
+            'open': 'first',
+            'high': 'max',
+            'low': 'min',
+            'close': 'last',
+            'volume': 'sum'
+        }
+        
+        # Resample to Weekly (W-FRI)
+        weekly_df = df.resample('W-FRI').agg(logic)
+        weekly_df = weekly_df.dropna()
+        
+        return weekly_df
+
 if __name__ == "__main__":
     # Quick test
     feed = DataFeed()

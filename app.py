@@ -45,7 +45,7 @@ st.sidebar.header("Exit Strategy")
 # Use session state keys for persistence
 if 'sl_mode' not in st.session_state: st.session_state.sl_mode = 'Pattern Based'
 if 'tp_mode' not in st.session_state: st.session_state.tp_mode = 'Pattern Based (Fib)'
-if 'holding_period' not in st.session_state: st.session_state.holding_period = 15
+if 'holding_period' not in st.session_state: st.session_state.holding_period = 30
 if 'stop_loss' not in st.session_state: st.session_state.stop_loss = 2.0
 if 'take_profit' not in st.session_state: st.session_state.take_profit = 5.0
 if 'atr_multiplier' not in st.session_state: st.session_state.atr_multiplier = 2.0
@@ -92,10 +92,11 @@ initial_capital = st.sidebar.number_input("Initial Capital", value=100000.0, ste
 use_dynamic_sizing = st.sidebar.checkbox("Use Dynamic Position Sizing", value=True)
 risk_per_trade = 0.01
 if use_dynamic_sizing:
-    risk_per_trade = st.sidebar.number_input("Risk per Trade (%)", 0.1, 5.0, 1.0, 0.1) / 100
+    risk_per_trade = st.sidebar.number_input("Risk per Trade (%)", 0.1, 5.0, 2.0, 0.1) / 100
 
 st.sidebar.header("Filter")
 enable_trend_filter = st.sidebar.checkbox("Enable Trend Filter (SMA 200)", value=False)
+enable_mtf_filter = st.sidebar.checkbox("Enable MTF Filter (Weekly Trend)", value=False, help="Filter signals based on Weekly 25x5 DMA Trend.")
 
 # Sync inputs back to session state
 st.session_state.sl_mode = sl_mode
@@ -230,6 +231,12 @@ if st.session_state.analyzed and st.session_state.data is not None:
     if enable_trend_filter:
         signals_dr = recognizer.apply_trend_filter(signals_dr, sma_200)
         signals_sp = recognizer.apply_trend_filter(signals_sp, sma_200)
+
+    # Apply MTF Filter if enabled
+    if enable_mtf_filter:
+        weekly_df = DataFeed.resample_to_weekly(df)
+        signals_dr = recognizer.apply_mtf_filter(signals_dr, weekly_df)
+        signals_sp = recognizer.apply_mtf_filter(signals_sp, weekly_df)
     
     # Merge signals based on selection
     signals = pd.DataFrame(index=df.index, columns=['signal', 'pattern', 'pattern_sl', 'pattern_tp'])
