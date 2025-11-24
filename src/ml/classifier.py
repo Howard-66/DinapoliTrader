@@ -83,4 +83,33 @@ class SignalClassifier:
         os.makedirs(os.path.dirname(self.model_path), exist_ok=True)
         joblib.dump(self.model, self.model_path)
 
+    def get_feature_importance(self) -> pd.DataFrame:
+        """
+        Get feature importance from the trained model.
+        """
+        if not self.is_trained or self.model is None:
+            return pd.DataFrame()
+            
+        try:
+            if hasattr(self.model, 'feature_importances_'):
+                importances = self.model.feature_importances_
+                
+                # Try to get feature names
+                if hasattr(self.model, 'feature_names_in_'):
+                    names = self.model.feature_names_in_
+                else:
+                    # Fallback if names not stored
+                    names = [f"Feature {i}" for i in range(len(importances))]
+                    
+                df = pd.DataFrame({
+                    'Feature': names,
+                    'Importance': importances
+                })
+                return df.sort_values('Importance', ascending=False)
+            else:
+                return pd.DataFrame()
+        except Exception as e:
+            print(f"Error getting feature importance: {e}")
+            return pd.DataFrame()
+
 

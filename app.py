@@ -97,6 +97,7 @@ if use_dynamic_sizing:
 st.sidebar.header("Filter")
 enable_trend_filter = st.sidebar.checkbox("Enable Trend Filter (SMA 200)", value=False)
 enable_mtf_filter = st.sidebar.checkbox("Enable MTF Filter (Weekly Trend)", value=False, help="Filter signals based on Weekly 25x5 DMA Trend.")
+min_confidence = st.sidebar.slider("Min Confidence", 0.0, 1.0, 0.5, 0.05)
 
 # Sync inputs back to session state
 st.session_state.sl_mode = sl_mode
@@ -109,31 +110,7 @@ if sl_mode == "ATR Based":
 if tp_mode == "Fixed Percentage":
     st.session_state.take_profit = take_profit * 100
 
-# --- ML Lab Section ---
-with st.sidebar.expander("🧪 ML Lab"):
-    st.write("Train a model to filter signals.")
-    if st.button("Train ML Model"):
-        if st.session_state.analyzed and st.session_state.data is not None:
-            with st.spinner("Training Model (Simulated)..."):
-                # Use current data for training (in reality, should use historical database)
-                train_df = st.session_state.data
-                train_recognizer = PatternRecognizer(train_df)
-                train_signals = train_recognizer.detect_double_repo()
-                train_signals.update(train_recognizer.detect_single_penetration())
-                
-                trainer = ModelTrainer()
-                result = trainer.train(train_df, train_signals)
-                
-                if result['status'] == 'success':
-                    st.success(f"Trained on {result['samples']} signals.")
-                    st.write(f"Accuracy: {result['accuracy']:.2f}")
-                    st.write(f"Precision: {result['precision']:.2f}")
-                else:
-                    st.error(result['message'])
-        else:
-            st.error("Load data first.")
-            
-    min_confidence = st.slider("Min Confidence", 0.0, 1.0, 0.5, 0.05)
+
 
 if mode == "Single Analysis":
     if st.sidebar.button("Analyze"):
@@ -329,57 +306,129 @@ if st.session_state.analyzed and st.session_state.data is not None:
         equity_curve = metrics['Equity Curve']
         drawdown_curve = metrics['Drawdown Curve']
 
-    # Visualization
-    indicators = {}
-    if enable_trend_filter:
-        indicators['SMA 200'] = sma_200
+    # Create Tabs
+    tab1, tab2 = st.tabs(["Backtest Results", "🧪 ML Lab"])
     
-    fig = Visualizer.plot_chart(df, indicators, equity=equity_curve, drawdown=drawdown_curve, trades=metrics['Trade Log'] if metrics else None, title=f"{symbol} Backtesting Results")
-    
-    # Add markers for signals
-    buy_signals_dr = signals[(signals['signal'] == 'BUY') & (signals['pattern'] == 'Double Repo')]
-    buy_signals_sp = signals[(signals['signal'] == 'BUY') & (signals['pattern'] == 'Single Penetration')]
-    
-    if not buy_signals_dr.empty:
-        fig.add_scatter(x=buy_signals_dr.index, y=df.loc[buy_signals_dr.index, 'low']*0.99, mode='markers', marker=dict(color='green', size=5, symbol='triangle-up'), name='Double Repo Buy')
+    with tab1:
+        # Visualization
+        indicators = {}
+        if enable_trend_filter:
+            indicators['SMA 200'] = sma_200
         
-    if not buy_signals_sp.empty:
-        fig.add_scatter(x=buy_signals_sp.index, y=df.loc[buy_signals_sp.index, 'low']*0.99, mode='markers', marker=dict(color='blue', size=5, symbol='triangle-up'), name='Single Pen. Buy')
+        fig = Visualizer.plot_chart(df, indicators, equity=equity_curve, drawdown=drawdown_curve, trades=metrics['Trade Log'] if metrics else None, title=f"{symbol} Backtesting Results")
         
-    st.plotly_chart(fig, width='stretch')
-    
-    # Performance Metrics Display
-    if metrics:
-        st.markdown("---")
-        st.subheader("Strategy Performance (Estimated)")
+        # Add markers for signals
+        buy_signals_dr = signals[(signals['signal'] == 'BUY') & (signals['pattern'] == 'Double Repo')]
+        buy_signals_sp = signals[(signals['signal'] == 'BUY') & (signals['pattern'] == 'Single Penetration')]
         
-        m1, m2, m3, m4, m5, m6 = st.columns(6)
-        m1.metric("Total Trades", metrics['Total Trades'])
-        m2.metric("Win Rate", f"{metrics['Win Rate']:.1%}")
-        m3.metric("Avg Return", f"{metrics['Avg Return']:.2%}")
-        m4.metric("Total Return", f"{metrics['Total Return']:.2%}")
-        m5.metric("Ann. Return", f"{metrics['Annualized Return']:.2%}")
-        m6.metric("Max Drawdown", f"{metrics['Max Drawdown']:.2%}")
+        if not buy_signals_dr.empty:
+            fig.add_scatter(x=buy_signals_dr.index, y=df.loc[buy_signals_dr.index, 'low']*0.99, mode='markers', marker=dict(color='green', size=5, symbol='triangle-up'), name='Double Repo Buy')
+            
+        if not buy_signals_sp.empty:
+            fig.add_scatter(x=buy_signals_sp.index, y=df.loc[buy_signals_sp.index, 'low']*0.99, mode='markers', marker=dict(color='blue', size=5, symbol='triangle-up'), name='Single Pen. Buy')
+            
+        st.plotly_chart(fig, width='stretch')
+        
+        # Performance Metrics Display
+        if metrics:
+            st.markdown("---")
+            st.subheader("Strategy Performance (Estimated)")
+            
+            m1, m2, m3, m4, m5, m6 = st.columns(6)
+            m1.metric("Total Trades", metrics['Total Trades'])
+            m2.metric("Win Rate", f"{metrics['Win Rate']:.1%}")
+            m3.metric("Avg Return", f"{metrics['Avg Return']:.2%}")
+            m4.metric("Total Return", f"{metrics['Total Return']:.2%}")
+            m5.metric("Ann. Return", f"{metrics['Annualized Return']:.2%}")
+            m6.metric("Max Drawdown", f"{metrics['Max Drawdown']:.2%}")
 
-    st.markdown("---")
-    st.subheader("Detected Signals & Trade Log")
-    
-    if metrics and not metrics['Trade Log'].empty:
-        st.write("Detailed Trade Log (Simulated):")
-        st.dataframe(metrics['Trade Log'].style.format({
-            'Entry Price': '{:.2f}',
-            'Stop Loss': '{:.2f}',
-            'Take Profit': '{:.2f}',
-            'Exit Price': '{:.2f}',
-            'PnL Amount': '{:.2f}',
-            'PnL %': '{:.2%}',
-            'Confidence': '{:.2%}'
-        }))
-    elif not buy_signals.empty:
-        st.write("Raw Signals (Filtered):")
-        st.dataframe(buy_signals.style.format({'confidence': '{:.2%}'}))
-    else:
-        st.info("No signals to display.")
+        st.markdown("---")
+        st.subheader("Detected Signals & Trade Log")
+        
+        if metrics and not metrics['Trade Log'].empty:
+            st.write("Detailed Trade Log (Simulated):")
+            st.dataframe(metrics['Trade Log'].style.format({
+                'Entry Price': '{:.2f}',
+                'Stop Loss': '{:.2f}',
+                'Take Profit': '{:.2f}',
+                'Exit Price': '{:.2f}',
+                'PnL Amount': '{:.2f}',
+                'PnL %': '{:.2%}',
+                'Confidence': '{:.2%}'
+            }))
+        elif not buy_signals.empty:
+            st.write("Raw Signals (Filtered):")
+            st.dataframe(buy_signals.style.format({'confidence': '{:.2%}'}))
+        else:
+            st.info("No signals to display.")
+
+    with tab2:
+        st.header("ML Lab")
+        st.write("Train a model to filter signals based on market context.")
+        
+        c1, c2 = st.columns(2)
+        
+        with c1:
+            st.subheader("Model Training")
+            if st.button("Train ML Model"):
+                with st.spinner("Training Model..."):
+                    train_df = st.session_state.data
+                    train_recognizer = PatternRecognizer(train_df)
+                    train_signals = train_recognizer.detect_double_repo()
+                    train_signals.update(train_recognizer.detect_single_penetration())
+                    
+                    trainer = ModelTrainer()
+                    result = trainer.train(train_df, train_signals)
+                    
+                    if result['status'] == 'success':
+                        st.success(f"Trained on {result['samples']} signals.")
+                        st.write(f"Accuracy: {result['accuracy']:.2f}")
+                        st.write(f"Precision: {result['precision']:.2f}")
+                    else:
+                        st.error(result['message'])
+        
+        with c2:
+            st.subheader("Feature Importance")
+            if st.button("Show Feature Importance"):
+                clf = SignalClassifier()
+                if clf.is_trained:
+                    importance_df = clf.get_feature_importance()
+                    if not importance_df.empty:
+                        st.bar_chart(importance_df.set_index('Feature'))
+                    else:
+                        st.info("No feature importance available.")
+                else:
+                    st.warning("Model not trained yet.")
+
+        st.markdown("---")
+        st.subheader("Model Management")
+        
+        m_c1, m_c2 = st.columns(2)
+        with m_c1:
+            # Download Model
+            clf = SignalClassifier()
+            if clf.is_trained and os.path.exists(clf.model_path):
+                with open(clf.model_path, "rb") as f:
+                    st.download_button(
+                        label="Download Trained Model",
+                        data=f,
+                        file_name="signal_classifier.joblib",
+                        mime="application/octet-stream"
+                    )
+            else:
+                st.info("No trained model found to download.")
+                    
+        with m_c2:
+            # Upload Model
+            uploaded_file = st.file_uploader("Upload Pre-trained Model", type=['joblib'])
+            if uploaded_file is not None:
+                # Save uploaded file
+                with open(clf.model_path, "wb") as f:
+                    f.write(uploaded_file.getbuffer())
+                st.success("Model uploaded successfully! Reloading...")
+                # Force reload
+                clf = SignalClassifier()
+                st.experimental_rerun()
 
     # st.markdown("---")
     # st.subheader("🤖 AI Analyst (Gemini)")
