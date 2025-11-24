@@ -20,12 +20,12 @@ from src.ml.trainer import ModelTrainer
 
 st.set_page_config(page_title="DiNapoli Trader", layout="wide")
 
-st.title("DiNapoli Quantitative Trading System")
+# st.title("DiNapoli Quantitative Trading System")
 
 # Sidebar
 st.sidebar.header("Configuration")
-symbol = st.sidebar.text_input("Symbol", "000001.SZ")
-start_date = st.sidebar.date_input("Start Date", pd.to_datetime("2023-01-01"))
+symbol = st.sidebar.text_input("Symbol", "601398.SH")
+start_date = st.sidebar.date_input("Start Date", pd.to_datetime("2015-01-01"))
 end_date = st.sidebar.date_input("End Date", pd.to_datetime("today"))
 
 # Initialize session state
@@ -35,7 +35,6 @@ if 'analyzed' not in st.session_state:
     st.session_state.analyzed = False
 
 # Strategy Parameters (Always visible)
-st.sidebar.markdown("---")
 st.sidebar.header("Exit Strategy")
 
 # Use session state keys for persistence
@@ -82,6 +81,7 @@ st.sidebar.subheader("Time Exit")
 holding_period = st.sidebar.number_input("Holding Period (Bars)", min_value=1, value=st.session_state.holding_period, key='holding_period_input')
 
 # Risk Management (Sizing)
+st.sidebar.header("Risk Management")
 st.sidebar.subheader("Position Sizing")
 initial_capital = st.sidebar.number_input("Initial Capital", value=100000.0, step=1000.0)
 use_dynamic_sizing = st.sidebar.checkbox("Use Dynamic Position Sizing", value=False)
@@ -89,6 +89,7 @@ risk_per_trade = 0.01
 if use_dynamic_sizing:
     risk_per_trade = st.sidebar.number_input("Risk per Trade (%)", 0.1, 5.0, 1.0, 0.1) / 100
 
+st.sidebar.header("Filter")
 enable_trend_filter = st.sidebar.checkbox("Enable Trend Filter (SMA 200)", value=False)
 
 # Sync inputs back to session state
@@ -167,7 +168,7 @@ if st.session_state.analyzed and st.session_state.data is not None:
     selected_strategies = st.sidebar.multiselect(
         "Active Strategies",
         ["Double Repo", "Single Penetration"],
-        default=["Double Repo"]
+        default=["Double Repo", "Single Penetration"]
     )
     
     # Apply Trend Filter if enabled
@@ -318,41 +319,41 @@ if st.session_state.analyzed and st.session_state.data is not None:
     else:
         st.info("No signals to display.")
 
-    st.markdown("---")
-    st.subheader("🤖 AI Analyst (Gemini)")
+    # st.markdown("---")
+    # st.subheader("🤖 AI Analyst (Gemini)")
     
-    if st.button("Ask AI Analyst"):
-        with st.spinner("Analyzing market context..."):
-            analyst = LLMAnalyst()
+    # if st.button("Ask AI Analyst"):
+    #     with st.spinner("Analyzing market context..."):
+    #         analyst = LLMAnalyst()
             
-            # Construct context
-            last_close = df['close'].iloc[-1]
-            last_dma25 = dma_25x5.iloc[-1]
-            trend = "Bullish" if last_close > last_dma25 else "Bearish"
+    #         # Construct context
+    #         last_close = df['close'].iloc[-1]
+    #         last_dma25 = dma_25x5.iloc[-1]
+    #         trend = "Bullish" if last_close > last_dma25 else "Bearish"
             
-            # Volatility (ATR-like or simple std)
-            vol = df['close'].pct_change().std() * 100
-            vol_str = f"{vol:.2f}% (Daily)"
+    #         # Volatility (ATR-like or simple std)
+    #         vol = df['close'].pct_change().std() * 100
+    #         vol_str = f"{vol:.2f}% (Daily)"
             
-            # RSI
-            rsi = Indicators.rsi(df['close'], 14).iloc[-1]
+    #         # RSI
+    #         rsi = Indicators.rsi(df['close'], 14).iloc[-1]
             
-            # Pattern
-            recent_pattern = "None"
-            if not buy_signals.empty:
-                recent_pattern = buy_signals['pattern'].iloc[-1]
+    #         # Pattern
+    #         recent_pattern = "None"
+    #         if not buy_signals.empty:
+    #             recent_pattern = buy_signals['pattern'].iloc[-1]
             
-            context = {
-                'symbol': symbol,
-                'trend': trend,
-                'volatility': vol_str,
-                'pattern': recent_pattern,
-                'rsi': f"{rsi:.2f}",
-                'close': f"{last_close:.2f}"
-            }
+    #         context = {
+    #             'symbol': symbol,
+    #             'trend': trend,
+    #             'volatility': vol_str,
+    #             'pattern': recent_pattern,
+    #             'rsi': f"{rsi:.2f}",
+    #             'close': f"{last_close:.2f}"
+    #         }
             
-            analysis = analyst.analyze_context(context)
-            st.write(analysis)
+    #         analysis = analyst.analyze_context(context)
+    #         st.write(analysis)
 
-st.sidebar.markdown("---")
-st.sidebar.info("System Ready")
+# st.sidebar.markdown("---")
+# st.sidebar.info("System Ready")

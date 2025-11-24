@@ -30,14 +30,14 @@ class Visualizer:
             plotly.graph_objects.Figure
         """
 
-        rows = 2
-        row_heights = [0.7, 0.3]
+        rows = 1
+        row_heights = [1.0]
         subplot_titles = [title, 'Volume']
         
         if equity is not None and drawdown is not None:
-            rows = 4
-            row_heights = [0.5, 0.15, 0.15, 0.15]
-            subplot_titles = [title, 'Volume', 'Equity Curve', 'Drawdown %']
+            rows = 3
+            row_heights = [0.7, 0.15, 0.15]
+            subplot_titles = [title, 'Equity Curve', 'Drawdown %']
             
         fig = make_subplots(rows=rows, cols=1, shared_xaxes=True, 
                             vertical_spacing=0.03, subplot_titles=subplot_titles,
@@ -67,12 +67,12 @@ class Visualizer:
                 ), row=1, col=1)
 
         # Volume
-        fig.add_trace(go.Bar(
-            x=df.index,
-            y=df['volume'],
-            name='Volume',
-            marker_color='rgba(100, 100, 100, 0.5)'
-        ), row=2, col=1)
+        # fig.add_trace(go.Bar(
+        #     x=df.index,
+        #     y=df['volume'],
+        #     name='Volume',
+        #     marker_color='rgba(100, 100, 100, 0.5)'
+        # ), row=2, col=1)
 
         # Trade Execution Lines
         if trades is not None and not trades.empty:
@@ -101,7 +101,7 @@ class Visualizer:
                 y=equity.values,
                 name='Equity',
                 line=dict(color='cyan', width=1.5)
-            ), row=3, col=1)
+            ), row=2, col=1)
             
             fig.add_trace(go.Scatter(
                 x=drawdown.index,
@@ -109,13 +109,14 @@ class Visualizer:
                 name='Drawdown %',
                 line=dict(color='red', width=1),
                 fill='tozeroy'
-            ), row=4, col=1)
+            ), row=3, col=1)
 
         fig.update_layout(
             xaxis_rangeslider_visible=False,
             height=900, # Increased height slightly
             template='plotly_dark',
-            hovermode='x unified'
+            hovermode='x unified',
+            showlegend=False
         )
         
         return fig
