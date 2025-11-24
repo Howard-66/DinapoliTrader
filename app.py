@@ -40,7 +40,7 @@ st.sidebar.header("Exit Strategy")
 # Use session state keys for persistence
 if 'sl_mode' not in st.session_state: st.session_state.sl_mode = 'Pattern Based'
 if 'tp_mode' not in st.session_state: st.session_state.tp_mode = 'Pattern Based (Fib)'
-if 'holding_period' not in st.session_state: st.session_state.holding_period = 5
+if 'holding_period' not in st.session_state: st.session_state.holding_period = 15
 if 'stop_loss' not in st.session_state: st.session_state.stop_loss = 2.0
 if 'take_profit' not in st.session_state: st.session_state.take_profit = 5.0
 if 'atr_multiplier' not in st.session_state: st.session_state.atr_multiplier = 2.0
@@ -84,7 +84,7 @@ holding_period = st.sidebar.number_input("Holding Period (Bars)", min_value=1, v
 st.sidebar.header("Risk Management")
 st.sidebar.subheader("Position Sizing")
 initial_capital = st.sidebar.number_input("Initial Capital", value=100000.0, step=1000.0)
-use_dynamic_sizing = st.sidebar.checkbox("Use Dynamic Position Sizing", value=False)
+use_dynamic_sizing = st.sidebar.checkbox("Use Dynamic Position Sizing", value=True)
 risk_per_trade = 0.01
 if use_dynamic_sizing:
     risk_per_trade = st.sidebar.number_input("Risk per Trade (%)", 0.1, 5.0, 1.0, 0.1) / 100
@@ -272,7 +272,7 @@ if st.session_state.analyzed and st.session_state.data is not None:
     if enable_trend_filter:
         indicators['SMA 200'] = sma_200
     
-    fig = Visualizer.plot_chart(df, indicators, equity=equity_curve, drawdown=drawdown_curve, trades=metrics['Trade Log'] if metrics else None, title=f"{symbol} DiNapoli Analysis")
+    fig = Visualizer.plot_chart(df, indicators, equity=equity_curve, drawdown=drawdown_curve, trades=metrics['Trade Log'] if metrics else None, title=f"{symbol} Backtesting Results")
     
     # Add markers for signals
     buy_signals_dr = signals[(signals['signal'] == 'BUY') & (signals['pattern'] == 'Double Repo')]

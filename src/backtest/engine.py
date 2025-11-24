@@ -75,6 +75,7 @@ class BacktestEngine:
         # 5. 设置资金
         self.cerebro.broker.setcash(self.initial_cash)
         self.cerebro.broker.setcommission(commission=0.001)
+        self.cerebro.broker.set_slippage_perc(perc=0.0005) # 0.05% slippage
 
         # 6. 运行
         print(f'Starting Portfolio Value: {self.cerebro.broker.getvalue():.2f}')

@@ -36,7 +36,7 @@ class Visualizer:
         
         if equity is not None and drawdown is not None:
             rows = 3
-            row_heights = [0.7, 0.15, 0.15]
+            row_heights = [0.75, 0.15, 0.10]
             subplot_titles = [title, 'Equity Curve', 'Drawdown %']
             
         fig = make_subplots(rows=rows, cols=1, shared_xaxes=True, 
@@ -113,10 +113,11 @@ class Visualizer:
 
         fig.update_layout(
             xaxis_rangeslider_visible=False,
-            height=900, # Increased height slightly
+            height=550, # Reduced height
             template='plotly_dark',
             hovermode='x unified',
-            showlegend=False
+            showlegend=False,
+            margin=dict(t=20, b=0)
         )
         
         return fig

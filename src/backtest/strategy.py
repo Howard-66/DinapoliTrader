@@ -171,8 +171,8 @@ class DiNapoliStrategyWithSignals(bt.Strategy):
                 
                 if size > 0:
                     self.log(f'BUY CREATE, {current_price:.2f} (SL: {sl_price:.2f}, TP: {tp_price:.2f}, Size: {size})')
-                    # Use Bracket Order
-                    self.buy_bracket(size=size, price=current_price, stopprice=sl_price, limitprice=tp_price)
+                    # Use Bracket Order with Market execution (Next Bar Open)
+                    self.buy_bracket(size=size, exectype=bt.Order.Market, stopprice=sl_price, limitprice=tp_price)
             
             elif sig == 'SELL' and self.position:
                  # If we have a sell signal and are long, close position
