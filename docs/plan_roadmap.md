@@ -50,17 +50,52 @@
     - **ATR-based Stop Loss**: Adjust SL based on volatility.
     - **Dynamic Position Sizing**: Risk-based sizing (e.g., 1% risk per trade).
 
-## Phase 6: Core Optimization & Advanced Analytics (Weeks 15-18)
+## Phase 6: Core Optimization & Advanced Analytics (Completed)
 **Goal:** Deepen the strategy's robustness and analytical capabilities.
-- [ ] **Multi-Timeframe Analysis (MTF)**:
+- [x] **Multi-Timeframe Analysis (MTF)**:
     - **Trend Confirmation**: Confirm Daily signals with Weekly trend direction.
     - **MTF Dashboard**: View Weekly/Monthly charts alongside Daily.
-- [ ] **Market Scanner (Batch Analysis)**:
+- [x] **Market Scanner (Batch Analysis)**:
     - **Sector Scan**: Scan lists of symbols (e.g., CSI 300, SP 500) for active signals.
     - **Opportunity Table**: Dashboard view ranking top opportunities by ML Confidence.
-- [ ] **Advanced ML Insights**:
+- [x] **Advanced ML Insights**:
     - **Feature Importance**: Visualize which factors (RSI, DMA, Volatility) drive the model's decisions.
     - **Model Management**: Save/Load distinct models for different asset classes.
-- [ ] **Robust Backtesting**:
+- [x] **Robust Backtesting**:
     - **Walk-Forward Analysis**: Validate parameters over rolling time windows.
     - **Detailed Reporting**: Monthly returns heatmap, Sharpe/Sortino ratios.
+
+## Phase 7: Strategy Expansion & Fundamentals (Weeks 19-21)
+**Goal:** Diversify signal sources and integrate fundamental data.
+- [ ] **New Patterns**:
+    - **Railroad Tracks (RRT)**: Reversal pattern with two opposite candles.
+    - **Failure to Penetrate (FTP)**: Price fails to close beyond key levels.
+    - **Consolidation Breakout**: Volatility squeeze breakouts.
+- [ ] **Fundamental Analysis**:
+    - **Data Integration**: Fetch PE, PB, ROE, Revenue Growth from Tushare/YFinance.
+    - **Valuation Filter**: Filter out overvalued assets in Market Scanner.
+    - **Quality Filter**: Ensure trading only high-quality companies (high ROE).
+- [ ] **Advanced Trade Management**:
+    - **Trailing Stop**: Implement Chandelier Exit or ATR Trailing Stop.
+    - **Partial Take Profit**: Scale out positions to lock in gains.
+    - **Limit Entry**: Optimize entry price with limit orders at retracement levels.
+
+## Phase 8: Portfolio & Advanced Analytics (Weeks 22-25)
+**Goal:** Move from single-asset to portfolio-level management.
+- [ ] **Portfolio Backtesting**:
+    - **Multi-Asset Engine**: Simulate trading a basket of assets with shared capital.
+    - **Correlation Analysis**: Avoid over-exposure to correlated assets.
+    - **Portfolio Optimization**: Mean-Variance or Risk Parity allocation.
+- [ ] **Advanced Feature Engineering**:
+    - **Macro Data**: Interest rates, GDP, Inflation as regime filters.
+    - **Sentiment Analysis**: News/Social media sentiment score via LLM.
+    - **Micro-Structure**: Order flow and volume profile features.
+
+## Phase 9: Deep Intelligence (Weeks 26-29)
+**Goal:** Leverage state-of-the-art AI for alpha generation.
+- [ ] **Deep Learning**:
+    - **LSTM/GRU**: Capture temporal dependencies in price sequences.
+- [ ] **Reinforcement Learning (RL)**:
+    - **DQN/PPO Agent**: Train agents to optimize risk-adjusted returns in a simulated environment.
+- [ ] **Explainable AI (XAI)**:
+    - **SHAP Values**: Interpret complex model decisions.

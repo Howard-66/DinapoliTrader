@@ -17,20 +17,29 @@
     - **Single Penetration**: "面包与黄油" (Bread & Butter) 趋势延续模式。
 - **信号过滤**:
     - **Trend Filter**: 基于 SMA 200 的大趋势过滤。
+    - **MTF Filter (New)**: 基于周线 (Weekly) 25x5 DMA 的多时间框架趋势确认。
     - **ML Confidence**: 基于随机森林 (Random Forest) 的信号置信度评分。
 
 ### 3. 智能增强 (AI Enhancement)
-- **ML Lab**: 内置机器学习实验室，支持一键训练模型，评估信号质量。
+- **ML Lab**: 
+    - **Model Training**: 一键训练模型，评估信号质量。
+    - **Feature Importance (New)**: 可视化特征重要性，理解模型决策依据。
+    - **Model Management (New)**: 支持模型保存与加载，方便复用预训练模型。
 - **LLM Analyst**: 集成 Google Gemini Pro，提供基于市场语境 (Context-Aware) 的自然语言分析报告。
 
 ### 4. 回测与风控 (Backtest & Risk)
-- **可视化仪表盘**: 基于 Streamlit 的交互式界面，集成 Plotly 图表。
-- **性能分析**: 实时计算权益曲线 (Equity Curve)、回撤曲线 (Drawdown)、胜率、盈亏比等指标。
+- **可视化仪表盘**: 
+    - **Analysis Mode (New)**: 支持 "Single Asset" (单标的深度分析) 和 "Portfolio Scanner" (全市场扫描) 模式。
+    - **Dynamic UI (New)**: 采用 Tabs 和 Sidebar 联动设计，提升交互体验。
+- **性能分析**: 
+    - **Advanced Metrics (New)**: 新增 Sharpe Ratio, Sortino Ratio, Profit Factor。
+    - **Visualizations**: 权益曲线, 回撤曲线, **Monthly Returns Heatmap (New)**。
+- **稳健性测试 (Robustness)**:
+    - **Walk-Forward Analysis (New)**: 滚动窗口分析 (WFA)，验证策略在样本外 (Out-of-Sample) 的表现。
 - **动态风控 (Dynamic Risk)**:
     - **多模式止损 (Multi-Mode SL)**: 支持 Pattern Based (形态), ATR Based (波动率), Fixed % (固定比例)。
     - **多模式止盈 (Multi-Mode TP)**: 支持 Pattern Based (Fibonacci), Fixed % (固定比例)。
     - **Position Sizing**: 基于风险敞口的动态仓位管理。
-- **参数优化**: 内置网格搜索 (Grid Search) 优化器，寻找最佳止盈止损参数。
 
 ## 快速开始 (Quick Start)
 
@@ -53,5 +62,6 @@
 - `src/strategies`: 策略逻辑与模式识别
 - `src/ml`: 机器学习与 LLM 分析师
 - `src/risk`: 风控管理
-- `src/optimization`: 参数优化器
+- `src/optimization`: 参数优化器 (Grid Search, WFA)
 - `src/utils`: 性能分析与可视化
+
