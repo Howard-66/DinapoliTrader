@@ -85,7 +85,7 @@ if analysis_mode == "Single Asset":
             # st.header(f"Backtest: {symbol}")
             
             with st.expander("⚙️ Strategy Settings", expanded=True):
-                c1, c2 = st.columns([1, 2])
+                c1, c2, c3, c4 = st.columns(4)
                 
                 with c1:
                     st.write("Active Strategies")
@@ -103,34 +103,33 @@ if analysis_mode == "Single Asset":
                     min_confidence = st.slider("Min Confidence", 0.0, 1.0, 0.5, 0.05)
                 
                 with c2:
-                    c2_1, c2_2 = st.columns(2)
-                    with c2_1:
-                        st.write("Exit Strategy")
-                        sl_mode = st.selectbox("Stop Loss Mode", ["Pattern Based", "ATR Based", "Fixed Percentage"], index=0)
-                        tp_mode = st.selectbox("Take Profit Mode", ["Pattern Based (Fib)", "Fixed Percentage"], index=0)
-                        holding_period = st.number_input("Holding Period (Bars)", min_value=1, value=30)
+                    st.write("Exit Strategy")
+                    sl_mode = st.selectbox("Stop Loss Mode", ["Pattern Based", "ATR Based", "Fixed Percentage"], index=0)
+                    tp_mode = st.selectbox("Take Profit Mode", ["Pattern Based (Fib)", "Fixed Percentage"], index=0)
+                    holding_period = st.number_input("Holding Period (Bars)", min_value=1, value=30)
+                
+                with c3:
+                    st.write("Parameters")
+                    stop_loss = 0.02
+                    atr_multiplier = 2.0
+                    take_profit = 0.05
                     
-                    with c2_2:
-                        st.write("Parameters")
-                        stop_loss = 0.02
-                        atr_multiplier = 2.0
-                        take_profit = 0.05
+                    if sl_mode == "Fixed Percentage":
+                        stop_loss = st.number_input("Stop Loss (%)", 0.1, 20.0, 2.0, 0.1) / 100
+                    elif sl_mode == "ATR Based":
+                        atr_multiplier = st.number_input("ATR Multiplier", 1.0, 5.0, 2.0, 0.5)
                         
-                        if sl_mode == "Fixed Percentage":
-                            stop_loss = st.number_input("Stop Loss (%)", 0.1, 20.0, 2.0, 0.1) / 100
-                        elif sl_mode == "ATR Based":
-                            atr_multiplier = st.number_input("ATR Multiplier", 1.0, 5.0, 2.0, 0.5)
-                            
-                        if tp_mode == "Fixed Percentage":
-                            take_profit = st.number_input("Take Profit (%)", 0.1, 50.0, 5.0, 0.1) / 100
-                            
-                        # Risk Management
-                        st.write("Risk Management")
-                        initial_capital = st.number_input("Initial Capital", value=100000.0, step=1000.0)
-                        use_dynamic_sizing = st.checkbox("Use Dynamic Position Sizing", value=True)
-                        risk_per_trade = 0.01
-                        if use_dynamic_sizing:
-                            risk_per_trade = st.number_input("Risk per Trade (%)", 0.1, 5.0, 2.0, 0.1) / 100
+                    if tp_mode == "Fixed Percentage":
+                        take_profit = st.number_input("Take Profit (%)", 0.1, 50.0, 5.0, 0.1) / 100
+                        
+                with c4:
+                    # Risk Management
+                    st.write("Risk Management")
+                    initial_capital = st.number_input("Initial Capital", value=100000.0, step=1000.0)
+                    use_dynamic_sizing = st.checkbox("Use Dynamic Position Sizing", value=True)
+                    risk_per_trade = 0.01
+                    if use_dynamic_sizing:
+                        risk_per_trade = st.number_input("Risk per Trade (%)", 0.1, 5.0, 2.0, 0.1) / 100
 
             # --- Backtest Execution ---
             
