@@ -81,6 +81,7 @@ if analysis_mode == "Single Asset":
         tab_backtest, tab_robustness, tab_ml = st.tabs(["Strategy Backtest", "Walk-Forward Analysis", "Machine Learning Lab"])
         
         # --- Tab 1: Backtest ---
+        # --- Tab 1: Backtest ---
         with tab_backtest:
             # st.header(f"Backtest: {symbol}")
             
@@ -91,8 +92,8 @@ if analysis_mode == "Single Asset":
                     st.write("Active Strategies")
                     selected_strategies = st.pills(
                         "Active Strategies",
-                        ["Double Repo", "Single Penetration"],
-                        default=["Double Repo", "Single Penetration"],
+                        ["Double Repo", "Single Penetration", "Railroad Tracks", "Failure to Penetrate"],
+                        default=["Double Repo", "Single Penetration", "Railroad Tracks", "Failure to Penetrate"],
                         selection_mode="multi",
                         label_visibility="collapsed"
                     )
@@ -133,30 +134,39 @@ if analysis_mode == "Single Asset":
 
             # --- Backtest Execution ---
             
+            # Detect New Patterns
+            signals_rrt = recognizer.detect_railroad_tracks()
+            signals_ftp = recognizer.detect_failure_to_penetrate()
+
             # Apply Filters
             if enable_trend_filter:
                 signals_dr = recognizer.apply_trend_filter(signals_dr, sma_200)
                 signals_sp = recognizer.apply_trend_filter(signals_sp, sma_200)
+                signals_rrt = recognizer.apply_trend_filter(signals_rrt, sma_200)
+                signals_ftp = recognizer.apply_trend_filter(signals_ftp, sma_200)
 
             if enable_mtf_filter:
                 weekly_df = DataFeed.resample_to_weekly(df)
                 signals_dr = recognizer.apply_mtf_filter(signals_dr, weekly_df)
                 signals_sp = recognizer.apply_mtf_filter(signals_sp, weekly_df)
+                signals_rrt = recognizer.apply_mtf_filter(signals_rrt, weekly_df)
+                signals_ftp = recognizer.apply_mtf_filter(signals_ftp, weekly_df)
             
             # Merge Signals
             signals = pd.DataFrame(index=df.index, columns=['signal', 'pattern', 'pattern_sl', 'pattern_tp'])
             
-            if "Double Repo" in selected_strategies:
-                mask_dr = signals_dr['signal'].notna()
-                signals.loc[mask_dr] = signals_dr.loc[mask_dr]
-                
-            if "Single Penetration" in selected_strategies:
-                mask_sp = signals_sp['signal'].notna()
-                if "Double Repo" in selected_strategies:
-                     mask_fill = (signals['signal'].isna()) & (signals_sp['signal'].notna())
-                     signals.loc[mask_fill] = signals_sp.loc[mask_fill]
-                else:
-                     signals.loc[mask_sp] = signals_sp.loc[mask_sp]
+            # Helper to merge signals
+            def merge_signals(target_df, source_df, strategy_name):
+                if strategy_name in selected_strategies:
+                    mask = source_df['signal'].notna()
+                    # Only fill where target is empty to avoid overwriting (priority: DR > SP > RRT > FTP)
+                    mask_fill = (target_df['signal'].isna()) & mask
+                    target_df.loc[mask_fill] = source_df.loc[mask_fill]
+
+            merge_signals(signals, signals_dr, "Double Repo")
+            merge_signals(signals, signals_sp, "Single Penetration")
+            merge_signals(signals, signals_rrt, "Railroad Tracks")
+            merge_signals(signals, signals_ftp, "Failure to Penetrate")
 
             # ML Prediction Filter
             buy_signals = signals[signals['signal'] == 'BUY']
@@ -218,11 +228,17 @@ if analysis_mode == "Single Asset":
             # Add markers
             buy_signals_dr = signals[(signals['signal'] == 'BUY') & (signals['pattern'] == 'Double Repo')]
             buy_signals_sp = signals[(signals['signal'] == 'BUY') & (signals['pattern'] == 'Single Penetration')]
+            buy_signals_rrt = signals[(signals['signal'] == 'BUY') & (signals['pattern'] == 'Railroad Tracks')]
+            buy_signals_ftp = signals[(signals['signal'] == 'BUY') & (signals['pattern'] == 'Failure to Penetrate')]
             
             if not buy_signals_dr.empty:
-                fig.add_scatter(x=buy_signals_dr.index, y=df.loc[buy_signals_dr.index, 'low']*0.99, mode='markers', marker=dict(color='green', size=5, symbol='triangle-up'), name='Double Repo Buy')
+                fig.add_scatter(x=buy_signals_dr.index, y=df.loc[buy_signals_dr.index, 'low']*0.99, mode='markers', marker=dict(color='green', size=8, symbol='triangle-up'), name='Double Repo Buy')
             if not buy_signals_sp.empty:
-                fig.add_scatter(x=buy_signals_sp.index, y=df.loc[buy_signals_sp.index, 'low']*0.99, mode='markers', marker=dict(color='blue', size=5, symbol='triangle-up'), name='Single Pen. Buy')
+                fig.add_scatter(x=buy_signals_sp.index, y=df.loc[buy_signals_sp.index, 'low']*0.99, mode='markers', marker=dict(color='blue', size=8, symbol='triangle-up'), name='Single Pen. Buy')
+            if not buy_signals_rrt.empty:
+                fig.add_scatter(x=buy_signals_rrt.index, y=df.loc[buy_signals_rrt.index, 'low']*0.99, mode='markers', marker=dict(color='purple', size=8, symbol='triangle-up'), name='RRT Buy')
+            if not buy_signals_ftp.empty:
+                fig.add_scatter(x=buy_signals_ftp.index, y=df.loc[buy_signals_ftp.index, 'low']*0.99, mode='markers', marker=dict(color='orange', size=8, symbol='triangle-up'), name='FTP Buy')
                 
             st.plotly_chart(fig, width='stretch')
             

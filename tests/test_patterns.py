@@ -1,4 +1,5 @@
 import unittest
+import unittest.mock
 import pandas as pd
 import numpy as np
 from src.strategies.patterns import PatternRecognizer
@@ -54,7 +55,7 @@ class TestPatternRecognizer(unittest.TestCase):
         ]
         
         recognizer = PatternRecognizer(self.df)
-        signals = recognizer.detect_double_repo()
+        signals = recognizer.detect_double_repo(lookback=5)
         
         # 我们期望在第14个点左右检测到信号 (index 14 is the second cross up)
         # 0-9: < 82

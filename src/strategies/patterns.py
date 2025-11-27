@@ -225,3 +225,128 @@ class PatternRecognizer:
                     current_bear_run = 0
                     
         return signals
+
+    def detect_railroad_tracks(self, lookback: int = 5) -> pd.DataFrame:
+        """
+        检测 Railroad Tracks (RRT) 模式。
+        Logic: Two adjacent candles with opposite directions and similar large bodies.
+        
+        Returns:
+            pd.DataFrame: 包含信号的 DataFrame。
+            Columns: [signal, pattern, pattern_sl, pattern_tp]
+        """
+        signals = pd.DataFrame(index=self.df.index, columns=['signal', 'pattern', 'pattern_sl', 'pattern_tp'])
+        
+        close = self.df['close']
+        open_price = self.df['open']
+        high = self.df['high']
+        low = self.df['low']
+        
+        # Calculate body size and range
+        body = (close - open_price).abs()
+        total_range = high - low
+        
+        # Average body size for relative comparison
+        avg_body = body.rolling(window=20).mean()
+        
+        for i in range(1, len(self.df)):
+            # Check for sufficient body size (e.g., > 1.5 * avg_body)
+            # This ensures "large bodies"
+            if body.iloc[i] < 1.0 * avg_body.iloc[i] or body.iloc[i-1] < 1.0 * avg_body.iloc[i-1]:
+                continue
+                
+            # Check for opposite directions
+            # Candle 1 (Previous): Bullish, Candle 2 (Current): Bearish -> Bearish RRT
+            is_prev_bull = close.iloc[i-1] > open_price.iloc[i-1]
+            is_curr_bear = close.iloc[i] < open_price.iloc[i]
+            
+            # Candle 1: Bearish, Candle 2: Bullish -> Bullish RRT
+            is_prev_bear = close.iloc[i-1] < open_price.iloc[i-1]
+            is_curr_bull = close.iloc[i] > open_price.iloc[i]
+            
+            # Check for "Similar Length"
+            # Body difference shouldn't be too large (e.g., within 30%)
+            body_ratio = body.iloc[i] / body.iloc[i-1]
+            is_similar_size = 0.7 <= body_ratio <= 1.3
+            
+            if not is_similar_size:
+                continue
+                
+            if is_prev_bull and is_curr_bear:
+                # Bearish RRT (Top Reversal)
+                # Signal: SELL
+                # SL: Max High of the two candles
+                sl_price = max(high.iloc[i], high.iloc[i-1])
+                
+                # TP: Target 1:1 or 1.618 of the pattern height
+                pattern_height = sl_price - min(low.iloc[i], low.iloc[i-1])
+                tp_price = min(low.iloc[i], low.iloc[i-1]) - pattern_height * 1.0
+                
+                signals.iloc[i] = ['SELL', 'Railroad Tracks', sl_price, tp_price]
+                
+            elif is_prev_bear and is_curr_bull:
+                # Bullish RRT (Bottom Reversal)
+                # Signal: BUY
+                # SL: Min Low of the two candles
+                sl_price = min(low.iloc[i], low.iloc[i-1])
+                
+                # TP
+                pattern_height = max(high.iloc[i], high.iloc[i-1]) - sl_price
+                tp_price = max(high.iloc[i], high.iloc[i-1]) + pattern_height * 1.0
+                
+                signals.iloc[i] = ['BUY', 'Railroad Tracks', sl_price, tp_price]
+                
+        return signals
+
+    def detect_failure_to_penetrate(self, lookback: int = 5) -> pd.DataFrame:
+        """
+        检测 Failure to Penetrate (FTP) 模式。
+        Logic: Price penetrates DMA 3x3 (High > DMA for Sell, Low < DMA for Buy) 
+               but closes back inside (Close < DMA for Sell, Close > DMA for Buy).
+               
+        Returns:
+            pd.DataFrame: 包含信号的 DataFrame。
+            Columns: [signal, pattern, pattern_sl, pattern_tp]
+        """
+        signals = pd.DataFrame(index=self.df.index, columns=['signal', 'pattern', 'pattern_sl', 'pattern_tp'])
+        
+        close = self.df['close']
+        high = self.df['high']
+        low = self.df['low']
+        dma3 = self.dma_3x3
+        
+        for i in range(1, len(self.df)):
+            # Bullish FTP (Support Hold)
+            # Scenario: Trend is Up (or we are looking for support).
+            # Price dips below DMA 3x3 (Low < DMA) but Closes above it (Close > DMA).
+            # To avoid noise, we might want to check if Previous Close was also above DMA (Trend continuity)
+            
+            if low.iloc[i] < dma3.iloc[i] and close.iloc[i] > dma3.iloc[i]:
+                # Potential Bullish FTP
+                # Check if it's a "Failure" to penetrate downwards.
+                # Usually implies we were above, tried to go below, and failed.
+                if close.iloc[i-1] > dma3.iloc[i-1]: 
+                    # BUY Signal
+                    sl_price = low.iloc[i] # The wick low
+                    
+                    # TP: Recent High or fixed R:R
+                    # Let's use a simple 1.0 R:R for now based on the wick size
+                    risk = close.iloc[i] - sl_price
+                    tp_price = close.iloc[i] + risk * 2.0 # 2:1 Reward
+                    
+                    signals.iloc[i] = ['BUY', 'Failure to Penetrate', sl_price, tp_price]
+            
+            # Bearish FTP (Resistance Hold)
+            # Scenario: Price spikes above DMA 3x3 (High > DMA) but Closes below it (Close < DMA).
+            if high.iloc[i] > dma3.iloc[i] and close.iloc[i] < dma3.iloc[i]:
+                # Potential Bearish FTP
+                if close.iloc[i-1] < dma3.iloc[i-1]:
+                    # SELL Signal
+                    sl_price = high.iloc[i] # The wick high
+                    
+                    risk = sl_price - close.iloc[i]
+                    tp_price = close.iloc[i] - risk * 2.0
+                    
+                    signals.iloc[i] = ['SELL', 'Failure to Penetrate', sl_price, tp_price]
+                    
+        return signals

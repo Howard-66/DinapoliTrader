@@ -53,6 +53,12 @@ class MarketScanner:
                 
                 # Single Penetration
                 sp_signals = recognizer.detect_single_penetration()
+
+                # Railroad Tracks
+                rrt_signals = recognizer.detect_railroad_tracks()
+
+                # Failure to Penetrate
+                ftp_signals = recognizer.detect_failure_to_penetrate()
                 
                 # Check the last N bars for signals
                 recent_indices = df.index[-scan_window:]
@@ -78,6 +84,38 @@ class MarketScanner:
                     # Check Single Penetration
                     if idx in sp_signals.index:
                         sig = sp_signals.loc[idx]
+                        if not pd.isna(sig['signal']):
+                            confidence = self.classifier.predict_proba(df, idx)
+                            results.append({
+                                'Symbol': symbol,
+                                'Date': idx,
+                                'Signal': sig['signal'],
+                                'Pattern': sig['pattern'],
+                                'Close': df.loc[idx, 'close'],
+                                'SL': sig['pattern_sl'],
+                                'TP': sig['pattern_tp'],
+                                'Confidence': confidence
+                            })
+
+                    # Check Railroad Tracks
+                    if idx in rrt_signals.index:
+                        sig = rrt_signals.loc[idx]
+                        if not pd.isna(sig['signal']):
+                            confidence = self.classifier.predict_proba(df, idx)
+                            results.append({
+                                'Symbol': symbol,
+                                'Date': idx,
+                                'Signal': sig['signal'],
+                                'Pattern': sig['pattern'],
+                                'Close': df.loc[idx, 'close'],
+                                'SL': sig['pattern_sl'],
+                                'TP': sig['pattern_tp'],
+                                'Confidence': confidence
+                            })
+
+                    # Check Failure to Penetrate
+                    if idx in ftp_signals.index:
+                        sig = ftp_signals.loc[idx]
                         if not pd.isna(sig['signal']):
                             confidence = self.classifier.predict_proba(df, idx)
                             results.append({
