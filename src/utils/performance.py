@@ -65,10 +65,13 @@ class PerformanceAnalyzer:
                 continue
                 
             idx = self.df.index.get_loc(date)
-            if idx + 1 >= len(self.df):
+            # Enter on next bar
+            entry_idx = idx + 1
+            if entry_idx >= len(self.df):
                 continue
                 
-            entry_price = self.df['close'].iloc[idx]
+            entry_date = self.df.index[entry_idx]
+            entry_price = self.df['open'].iloc[entry_idx]
             
             # --- Determine Stop Loss Price ---
             sl_price = 0.0
@@ -170,7 +173,7 @@ class PerformanceAnalyzer:
             trade_log_data.append({
                 'Signal Date': date,
                 'Pattern': row.get('pattern', 'Unknown'),
-                'Entry Date': date, # Assuming entry on signal close
+                'Entry Date': entry_date,
                 'Entry Price': entry_price,
                 'Stop Loss': sl_price,
                 'Take Profit': tp_price,
