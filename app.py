@@ -3,6 +3,7 @@ import numpy as np
 import pandas as pd
 import sys
 import os
+from streamlit_echarts5 import st_echarts
 
 # Add src to path
 sys.path.append(os.path.join(os.path.dirname(__file__), '.'))
@@ -223,24 +224,31 @@ if analysis_mode == "Single Asset":
             if enable_trend_filter:
                 indicators['SMA 200'] = sma_200
             
-            fig = Visualizer.plot_chart(df, indicators, equity=equity_curve, drawdown=drawdown_curve, trades=metrics['Trade Log'] if metrics else None, title=f"{symbol} Backtesting Results")
-            
-            # Add markers
+            # Prepare signal markers for visualization
+            signal_markers = {}
             buy_signals_dr = signals[(signals['signal'] == 'BUY') & (signals['pattern'] == 'Double Repo')]
             buy_signals_sp = signals[(signals['signal'] == 'BUY') & (signals['pattern'] == 'Single Penetration')]
             buy_signals_rrt = signals[(signals['signal'] == 'BUY') & (signals['pattern'] == 'Railroad Tracks')]
             buy_signals_ftp = signals[(signals['signal'] == 'BUY') & (signals['pattern'] == 'Failure to Penetrate')]
             
             if not buy_signals_dr.empty:
-                fig.add_scatter(x=buy_signals_dr.index, y=df.loc[buy_signals_dr.index, 'low']*0.99, mode='markers', marker=dict(color='green', size=8, symbol='triangle-up'), name='Double Repo Buy')
+                signal_markers['Double Repo'] = buy_signals_dr
             if not buy_signals_sp.empty:
-                fig.add_scatter(x=buy_signals_sp.index, y=df.loc[buy_signals_sp.index, 'low']*0.99, mode='markers', marker=dict(color='blue', size=8, symbol='triangle-up'), name='Single Pen. Buy')
+                signal_markers['Single Penetration'] = buy_signals_sp
             if not buy_signals_rrt.empty:
-                fig.add_scatter(x=buy_signals_rrt.index, y=df.loc[buy_signals_rrt.index, 'low']*0.99, mode='markers', marker=dict(color='purple', size=8, symbol='triangle-up'), name='RRT Buy')
+                signal_markers['Railroad Tracks'] = buy_signals_rrt
             if not buy_signals_ftp.empty:
-                fig.add_scatter(x=buy_signals_ftp.index, y=df.loc[buy_signals_ftp.index, 'low']*0.99, mode='markers', marker=dict(color='orange', size=8, symbol='triangle-up'), name='FTP Buy')
+                signal_markers['Failure to Penetrate'] = buy_signals_ftp
+            
+            fig = Visualizer.plot_chart(df, indicators, 
+                                       equity=equity_curve, 
+                                       floating_equity=metrics.get('Floating Equity Curve') if metrics else None,
+                                       drawdown=drawdown_curve, 
+                                       trades=metrics['Trade Log'] if metrics else None, 
+                                       signals=signal_markers if signal_markers else None,
+                                       title=f"{symbol} Backtesting Results")
                 
-            st.plotly_chart(fig, width='stretch')
+            st_echarts(options=fig, height="550px")
             
             # Metrics Display
             if metrics:
@@ -264,7 +272,7 @@ if analysis_mode == "Single Asset":
                 st.subheader("Monthly Returns Heatmap")
                 if 'Monthly Returns' in metrics and not metrics['Monthly Returns'].empty:
                     fig_heatmap = Visualizer.plot_heatmap(metrics['Monthly Returns'])
-                    st.plotly_chart(fig_heatmap, width='stretch')
+                    st_echarts(options=fig_heatmap, height="500px")
                 
                 # Strategy Breakdown
                 st.markdown("---")
@@ -280,28 +288,17 @@ if analysis_mode == "Single Asset":
                             'Total PnL': '{:.2f}',
                             'Win Rate': '{:.1%}',
                             'Contribution %': '{:.1f}%'
-                        }), use_container_width=True)
+                        }), width='stretch')
                     
                     with col2:
-                        # Create bar chart for contribution
-                        import plotly.graph_objects as go
-                        
-                        fig_contrib = go.Figure()
-                        fig_contrib.add_trace(go.Bar(
-                            x=breakdown_df['Strategy'],
-                            y=breakdown_df['Contribution %'],
-                            marker_color=['green' if x > 0 else 'red' for x in breakdown_df['Contribution %']],
-                            text=[f"{x:.1f}%" for x in breakdown_df['Contribution %']],
-                            textposition='auto',
-                        ))
-                        fig_contrib.update_layout(
-                            title="Profit Contribution by Strategy",
-                            xaxis_title="Strategy",
-                            yaxis_title="Contribution %",
-                            height=300,
-                            showlegend=False
+                        # Create bar chart for contribution using ECharts
+                        fig_contrib = Visualizer.plot_bar_chart(
+                            breakdown_df,
+                            x_col='Strategy',
+                            y_col='Contribution %',
+                            title="Profit Contribution by Strategy"
                         )
-                        st.plotly_chart(fig_contrib, use_container_width=True)
+                        st_echarts(options=fig_contrib, height="300px")
                 else:
                     st.info("No strategy breakdown available.")
                 

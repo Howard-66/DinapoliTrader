@@ -35,8 +35,14 @@ class PerformanceAnalyzer:
         strategy_stats = {}
 
         # For equity curve, we need to track daily portfolio value
-        portfolio_value = pd.Series(initial_capital, index=self.df.index)
+        # Realized Equity: Only includes closed trades
+        # Floating Equity: Includes unrealized P&L from open positions
+        realized_equity = pd.Series(initial_capital, index=self.df.index)
+        floating_equity = pd.Series(initial_capital, index=self.df.index)
         current_capital = initial_capital
+        
+        # Track open positions for floating P&L calculation
+        open_positions = []  # List of (entry_idx, entry_price, quantity, pattern)
         
         # Pre-calculate ATR if needed
         atr_series = None
@@ -57,6 +63,7 @@ class PerformanceAnalyzer:
                 'Annualized Return': 0.0,
                 'Max Drawdown': 0.0,
                 'Equity Curve': pd.Series(initial_capital, index=self.df.index),
+                'Floating Equity Curve': pd.Series(initial_capital, index=self.df.index),
                 'Drawdown Curve': pd.Series(0.0, index=self.df.index),
                 'Trade Log': pd.DataFrame(),
                 'Strategy Breakdown': pd.DataFrame()
@@ -111,6 +118,20 @@ class PerformanceAnalyzer:
                     tp_price = entry_price * (1 + take_profit_pct)
             else: # Fixed
                 tp_price = entry_price * (1 + take_profit_pct)
+            
+            # Add to open positions
+            pattern = row.get('pattern', 'Unknown')
+            open_positions.append({
+                'entry_idx': entry_idx,
+                'entry_date': entry_date,
+                'entry_price': entry_price,
+                'quantity': quantity,
+                'sl_price': sl_price,
+                'tp_price': tp_price,
+                'pattern': pattern,
+                'signal_date': date,
+                'confidence': row.get('confidence', np.nan)
+            })
             
             # Simulate trade
             exit_price = entry_price
@@ -171,11 +192,13 @@ class PerformanceAnalyzer:
             pnl_amount = (exit_price - entry_price) * quantity
             trades.append(pnl_pct)
             
-            # Update Capital
+            # Update Capital (Realized)
             current_capital += pnl_amount
             
+            # Remove from open positions
+            open_positions = [pos for pos in open_positions if pos['entry_date'] != entry_date]
+            
             # Track per-strategy statistics
-            pattern = row.get('pattern', 'Unknown')
             if pattern not in strategy_stats:
                 strategy_stats[pattern] = {
                     'trades': 0,
@@ -203,16 +226,35 @@ class PerformanceAnalyzer:
                 'Confidence': row.get('confidence', np.nan)
             })
             
-            # Update Portfolio Value Curve (Simplified: Step change at exit)
-            # In reality, equity changes daily. For estimation, we just add PnL at exit.
+            # Update Realized Equity Curve (Step change at exit)
             if final_exit_date:
-                # Find indices between entry and exit
-                # Actually, simpler to just add pnl to all days AFTER exit
-                # But we want a time series.
-                # Let's just set the value from exit_date onwards to new capital
-                # This is an approximation.
-                mask = portfolio_value.index >= final_exit_date
-                portfolio_value.loc[mask] = current_capital
+                mask = realized_equity.index >= final_exit_date
+                realized_equity.loc[mask] = current_capital
+        
+        # Calculate Floating Equity Curve (daily)
+        # Build a list of all trades with their entry and exit dates
+        trade_positions = []
+        for trade in trade_log_data:
+            trade_positions.append({
+                'entry_date': trade['Entry Date'],
+                'exit_date': trade['Exit Date'],
+                'entry_price': trade['Entry Price'],
+                'quantity': trade['Quantity']
+            })
+        
+        # For each day, calculate unrealized P&L from positions that are open
+        for i, current_date in enumerate(self.df.index):
+            unrealized_pnl = 0.0
+            current_price = self.df['close'].iloc[i]
+            
+            # Check all trades to see if they're open on this date
+            for trade in trade_positions:
+                if trade['entry_date'] <= current_date < trade['exit_date']:
+                    # Position is open on this date
+                    unrealized_pnl += (current_price - trade['entry_price']) * trade['quantity']
+            
+            # Floating equity = realized capital at this point + unrealized P&L
+            floating_equity.iloc[i] = realized_equity.iloc[i] + unrealized_pnl
 
         if not trades:
              return {
@@ -224,6 +266,7 @@ class PerformanceAnalyzer:
                 'Total Return': 0.0,
                 'Max Drawdown': 0.0,
                 'Equity Curve': pd.Series(initial_capital, index=self.df.index),
+                'Floating Equity Curve': pd.Series(initial_capital, index=self.df.index),
                 'Drawdown Curve': pd.Series(0.0, index=self.df.index),
                 'Trade Log': pd.DataFrame(),
                 'Strategy Breakdown': pd.DataFrame()
@@ -233,13 +276,16 @@ class PerformanceAnalyzer:
         win_rate = np.mean(trades_np > 0)
         avg_return = np.mean(trades_np)
         
-        # Calculate Equity Curve
-        equity_curve = portfolio_value
-        total_return = (equity_curve.iloc[-1] - initial_capital) / initial_capital
+        # Calculate Equity Curves
+        equity_curve = realized_equity  # Realized equity (only closed trades)
+        floating_equity_curve = floating_equity  # Floating equity (includes unrealized P&L)
         
-        # Calculate Drawdown Curve
-        peak = equity_curve.cummax()
-        drawdown_curve = (equity_curve - peak) / peak
+        # Use floating equity for total return calculation (more accurate)
+        total_return = (floating_equity_curve.iloc[-1] - initial_capital) / initial_capital
+        
+        # Calculate Drawdown Curve (based on floating equity)
+        peak = floating_equity_curve.cummax()
+        drawdown_curve = (floating_equity_curve - peak) / peak
         max_drawdown = drawdown_curve.min() # Most negative value
 
         # Calculate Annualized Return
@@ -249,8 +295,8 @@ class PerformanceAnalyzer:
         else:
             annualized_return = 0.0
 
-        # Calculate Advanced Metrics
-        daily_returns = equity_curve.pct_change().dropna()
+        # Calculate Advanced Metrics (based on floating equity)
+        daily_returns = floating_equity_curve.pct_change().dropna()
         
         # Sharpe Ratio (assuming 0 risk-free rate for simplicity)
         if daily_returns.std() != 0:
@@ -274,14 +320,10 @@ class PerformanceAnalyzer:
         else:
             profit_factor = float('inf') if gross_profit > 0 else 0.0
 
-        # Calculate Monthly Returns
-        monthly_returns_series = equity_curve.resample('M').last().pct_change()
-        # Handle first month (if it starts mid-month, pct_change might be NaN or relative to 0)
-        # Actually, equity curve starts at initial capital.
-        # pct_change() first element is NaN. We need to fill it.
-        # The first month's return is (End Value / Initial Capital) - 1
-        first_month_idx = monthly_returns_series.index[0]
-        monthly_returns_series.iloc[0] = (equity_curve.resample('M').last().iloc[0] - initial_capital) / initial_capital
+        # Calculate Monthly Returns (based on floating equity)
+        monthly_returns_series = floating_equity_curve.resample('ME').last().pct_change()
+        # Handle first month
+        monthly_returns_series.iloc[0] = (floating_equity_curve.resample('ME').last().iloc[0] - initial_capital) / initial_capital
         
         # Create Pivot Table for Heatmap (Year x Month)
         monthly_returns_df = pd.DataFrame({
@@ -334,6 +376,7 @@ class PerformanceAnalyzer:
             'Sortino Ratio': sortino_ratio,
             'Profit Factor': profit_factor,
             'Equity Curve': equity_curve,
+            'Floating Equity Curve': floating_equity_curve,
             'Drawdown Curve': drawdown_curve,
             'Monthly Returns': monthly_returns_matrix,
             'Trade Log': pd.DataFrame(trade_log_data),
