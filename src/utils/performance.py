@@ -30,6 +30,9 @@ class PerformanceAnalyzer:
         """
         trades = []
         trade_log_data = []
+        
+        # Track per-strategy statistics
+        strategy_stats = {}
 
         # For equity curve, we need to track daily portfolio value
         portfolio_value = pd.Series(initial_capital, index=self.df.index)
@@ -55,8 +58,10 @@ class PerformanceAnalyzer:
                 'Max Drawdown': 0.0,
                 'Equity Curve': pd.Series(initial_capital, index=self.df.index),
                 'Drawdown Curve': pd.Series(0.0, index=self.df.index),
-                'Trade Log': pd.DataFrame()
+                'Trade Log': pd.DataFrame(),
+                'Strategy Breakdown': pd.DataFrame()
             }
+
 
 
         for date, row in buy_signals.iterrows():
@@ -169,10 +174,23 @@ class PerformanceAnalyzer:
             # Update Capital
             current_capital += pnl_amount
             
+            # Track per-strategy statistics
+            pattern = row.get('pattern', 'Unknown')
+            if pattern not in strategy_stats:
+                strategy_stats[pattern] = {
+                    'trades': 0,
+                    'pnl_amount': 0.0,
+                    'wins': 0
+                }
+            strategy_stats[pattern]['trades'] += 1
+            strategy_stats[pattern]['pnl_amount'] += pnl_amount
+            if pnl_pct > 0:
+                strategy_stats[pattern]['wins'] += 1
+            
             # Record Trade Log
             trade_log_data.append({
                 'Signal Date': date,
-                'Pattern': row.get('pattern', 'Unknown'),
+                'Pattern': pattern,
                 'Entry Date': entry_date,
                 'Entry Price': entry_price,
                 'Stop Loss': sl_price,
@@ -207,7 +225,8 @@ class PerformanceAnalyzer:
                 'Max Drawdown': 0.0,
                 'Equity Curve': pd.Series(initial_capital, index=self.df.index),
                 'Drawdown Curve': pd.Series(0.0, index=self.df.index),
-                'Trade Log': pd.DataFrame()
+                'Trade Log': pd.DataFrame(),
+                'Strategy Breakdown': pd.DataFrame()
             }
 
         trades_np = np.array(trades)
@@ -274,6 +293,35 @@ class PerformanceAnalyzer:
         
         # Fill missing months with 0.0
         monthly_returns_matrix = monthly_returns_matrix.fillna(0.0)
+        
+        # Calculate Strategy Breakdown
+        strategy_breakdown_data = []
+        total_pnl = sum(stats['pnl_amount'] for stats in strategy_stats.values())
+        
+        for pattern, stats in strategy_stats.items():
+            win_rate = stats['wins'] / stats['trades'] if stats['trades'] > 0 else 0.0
+            # Calculate contribution percentage
+            # Handle case where total PnL is zero or negative
+            if total_pnl > 0:
+                contribution_pct = (stats['pnl_amount'] / total_pnl) * 100
+            elif total_pnl < 0:
+                # For negative total PnL, losses contribute positively to the negative total
+                contribution_pct = (stats['pnl_amount'] / total_pnl) * 100
+            else:
+                contribution_pct = 0.0
+            
+            strategy_breakdown_data.append({
+                'Strategy': pattern,
+                'Trades': stats['trades'],
+                'Total PnL': stats['pnl_amount'],
+                'Win Rate': win_rate,
+                'Contribution %': contribution_pct
+            })
+        
+        strategy_breakdown_df = pd.DataFrame(strategy_breakdown_data)
+        # Sort by contribution percentage descending
+        if not strategy_breakdown_df.empty:
+            strategy_breakdown_df = strategy_breakdown_df.sort_values('Contribution %', ascending=False)
 
         return {
             'Total Trades': len(trades),
@@ -288,5 +336,6 @@ class PerformanceAnalyzer:
             'Equity Curve': equity_curve,
             'Drawdown Curve': drawdown_curve,
             'Monthly Returns': monthly_returns_matrix,
-            'Trade Log': pd.DataFrame(trade_log_data)
+            'Trade Log': pd.DataFrame(trade_log_data),
+            'Strategy Breakdown': strategy_breakdown_df
         }

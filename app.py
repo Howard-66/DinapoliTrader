@@ -266,6 +266,45 @@ if analysis_mode == "Single Asset":
                     fig_heatmap = Visualizer.plot_heatmap(metrics['Monthly Returns'])
                     st.plotly_chart(fig_heatmap, width='stretch')
                 
+                # Strategy Breakdown
+                st.markdown("---")
+                st.subheader("Strategy Contribution Breakdown")
+                if 'Strategy Breakdown' in metrics and not metrics['Strategy Breakdown'].empty:
+                    breakdown_df = metrics['Strategy Breakdown']
+                    
+                    # Display table
+                    col1, col2 = st.columns([2, 1])
+                    
+                    with col1:
+                        st.dataframe(breakdown_df.style.format({
+                            'Total PnL': '{:.2f}',
+                            'Win Rate': '{:.1%}',
+                            'Contribution %': '{:.1f}%'
+                        }), use_container_width=True)
+                    
+                    with col2:
+                        # Create bar chart for contribution
+                        import plotly.graph_objects as go
+                        
+                        fig_contrib = go.Figure()
+                        fig_contrib.add_trace(go.Bar(
+                            x=breakdown_df['Strategy'],
+                            y=breakdown_df['Contribution %'],
+                            marker_color=['green' if x > 0 else 'red' for x in breakdown_df['Contribution %']],
+                            text=[f"{x:.1f}%" for x in breakdown_df['Contribution %']],
+                            textposition='auto',
+                        ))
+                        fig_contrib.update_layout(
+                            title="Profit Contribution by Strategy",
+                            xaxis_title="Strategy",
+                            yaxis_title="Contribution %",
+                            height=300,
+                            showlegend=False
+                        )
+                        st.plotly_chart(fig_contrib, use_container_width=True)
+                else:
+                    st.info("No strategy breakdown available.")
+                
                 st.markdown("---")
                 st.subheader("Trade Log")
                 st.dataframe(metrics['Trade Log'].style.format({
