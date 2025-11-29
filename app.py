@@ -154,7 +154,7 @@ if analysis_mode == "Single Asset":
                 signals_ftp = recognizer.apply_mtf_filter(signals_ftp, weekly_df)
             
             # Merge Signals
-            signals = pd.DataFrame(index=df.index, columns=['signal', 'pattern', 'pattern_sl', 'pattern_tp'])
+            signals = pd.DataFrame(index=df.index, columns=['signal', 'pattern', 'pattern_sl', 'pattern_tp', 'metadata'])
             
             # Helper to merge signals
             def merge_signals(target_df, source_df, strategy_name):
@@ -304,10 +304,39 @@ if analysis_mode == "Single Asset":
                 
                 st.markdown("---")
                 st.subheader("Trade Log")
-                st.dataframe(metrics['Trade Log'].style.format({
-                    'Entry Price': '{:.2f}', 'Stop Loss': '{:.2f}', 'Take Profit': '{:.2f}', 
-                    'Exit Price': '{:.2f}', 'PnL Amount': '{:.2f}', 'PnL %': '{:.2%}', 'Confidence': '{:.2%}'
-                }))
+                st.info("Click on a trade to view detailed visualization.")
+                
+                event = st.dataframe(
+                    metrics['Trade Log'].style.format({
+                        'Entry Price': '{:.2f}', 'Stop Loss': '{:.2f}', 'Take Profit': '{:.2f}', 
+                        'Exit Price': '{:.2f}', 'PnL Amount': '{:.2f}', 'PnL %': '{:.2%}', 'Confidence': '{:.2%}'
+                    }),
+                    on_select="rerun",
+                    selection_mode="single-row"
+                )
+                
+                if len(event.selection.rows) > 0:
+                    selected_row_idx = event.selection.rows[0]
+                    trade_row = metrics['Trade Log'].iloc[selected_row_idx]
+                    
+                    @st.dialog("Trade Details", width="large")
+                    def show_trade_details(trade_row, df):
+                        st.write(f"**{trade_row['Pattern']}** | {trade_row['Entry Date'].date()} -> {trade_row['Exit Date'].date()}")
+                        
+                        # Generate Chart
+                        chart_option = Visualizer.plot_trade_detail(df, trade_row)
+                        if chart_option:
+                            st_echarts(options=chart_option, height="500px")
+                        else:
+                            st.warning("Could not generate chart for this trade.")
+                        
+                        # Show Metadata Raw (Debug/Info)
+                        with st.expander("Raw Signal Metadata"):
+                            # Convert timestamps to str for JSON serialization
+                            meta_copy = trade_row.get('Metadata', {}).copy() if isinstance(trade_row.get('Metadata'), dict) else {}
+                            st.json(meta_copy)
+                            
+                    show_trade_details(trade_row, df)
             else:
                 st.info("No trades executed.")
 
@@ -325,7 +354,7 @@ if analysis_mode == "Single Asset":
                 # We need to pass a grid of parameters to optimize
                 
                 # Merge signals (basic)
-                signals = pd.DataFrame(index=df.index, columns=['signal', 'pattern', 'pattern_sl', 'pattern_tp'])
+                signals = pd.DataFrame(index=df.index, columns=['signal', 'pattern', 'pattern_sl', 'pattern_tp', 'metadata'])
                 mask_dr = signals_dr['signal'].notna()
                 signals.loc[mask_dr] = signals_dr.loc[mask_dr]
                 mask_sp = signals_sp['signal'].notna()

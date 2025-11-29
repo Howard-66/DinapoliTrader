@@ -22,9 +22,9 @@ class PatternRecognizer:
         
         Returns:
             pd.DataFrame: 包含信号的DataFrame。
-            Columns: [signal, pattern, pattern_sl, pattern_tp]
+            Columns: [signal, pattern, pattern_sl, pattern_tp, metadata]
         """
-        signals = pd.DataFrame(index=self.df.index, columns=['signal', 'pattern', 'pattern_sl', 'pattern_tp'])
+        signals = pd.DataFrame(index=self.df.index, columns=['signal', 'pattern', 'pattern_sl', 'pattern_tp', 'metadata'])
         
         close = self.df['close']
         low = self.df['low']
@@ -63,27 +63,38 @@ class PatternRecognizer:
                              sl_price = pattern_low
                              
                              # Pattern TP: Fibonacci Expansion (COP = 0.618)
-                             # A: Start of move (Low before 1st Cross) - Simplified: Use Pattern Low
-                             # B: High of 1st thrust (Max High between 1st Cross and Down Cross)
-                             # C: Low of retracement (Min Low between Down Cross and 2nd Cross)
-                             
-                             # Simplified Logic for TP (OP Target)
-                             # Target = Entry + (Entry - SL) * 1.618 (Classic R:R) or Fib Expansion
-                             # Let's use simple Fib Expansion logic if we can identify A-B-C
-                             # A = pattern_low
-                             # B = high.iloc[prev_up_idx:prev_down_idx+1].max()
-                             # C = low.iloc[prev_down_idx:i+1].min()
-                             
-                             # If C < A, it invalidates, but let's assume valid for now
-                             # OP = C + (B-A) * 1.0
-                             
                              a_price = pattern_low
                              b_price = high.iloc[prev_up_idx:prev_down_idx+1].max()
                              c_price = low.iloc[prev_down_idx:i+1].min()
                              
                              op_price = c_price + (b_price - a_price) * 1.0
                              
-                             signals.iloc[i] = ['BUY', 'Double Repo', sl_price, op_price]
+                             # Find indices for visualization
+                             # We need the actual dates or integer indices relative to the dataframe
+                             # Let's store the index labels (timestamps)
+                             
+                             # Find the exact bar where B and C occurred
+                             # B: Max high in range [prev_up_idx, prev_down_idx]
+                             b_range = high.iloc[prev_up_idx:prev_down_idx+1]
+                             b_idx = b_range.idxmax()
+                             
+                             # C: Min low in range [prev_down_idx, i]
+                             c_range = low.iloc[prev_down_idx:i+1]
+                             c_idx = c_range.idxmin()
+                             
+                             # A: Min low around prev_up_idx (start of pattern)
+                             # Usually A is the low before the first thrust.
+                             a_range = low.iloc[max(0, prev_up_idx-5):prev_up_idx+1]
+                             a_idx = a_range.idxmin()
+                             
+                             metadata = {
+                                 'A': {'date': a_idx, 'price': a_price},
+                                 'B': {'date': b_idx, 'price': b_price},
+                                 'C': {'date': c_idx, 'price': c_price},
+                                 'entry': {'date': self.df.index[i], 'price': close.iloc[i]}
+                             }
+                             
+                             signals.iloc[i] = ['BUY', 'Double Repo', sl_price, op_price, metadata]
 
         return signals
 
@@ -105,12 +116,14 @@ class PatternRecognizer:
         trend_aligned = close > trend_ma
         filtered_signals.loc[buy_mask & (~trend_aligned), 'signal'] = np.nan
         filtered_signals.loc[buy_mask & (~trend_aligned), 'pattern'] = np.nan
+        filtered_signals.loc[buy_mask & (~trend_aligned), 'metadata'] = np.nan
         
         # Filter SELLs
         sell_mask = (filtered_signals['signal'] == 'SELL')
         trend_aligned_sell = close < trend_ma
         filtered_signals.loc[sell_mask & (~trend_aligned_sell), 'signal'] = np.nan
         filtered_signals.loc[sell_mask & (~trend_aligned_sell), 'pattern'] = np.nan
+        filtered_signals.loc[sell_mask & (~trend_aligned_sell), 'metadata'] = np.nan
         
         return filtered_signals
 
@@ -142,12 +155,14 @@ class PatternRecognizer:
         trend_ok = (daily_trend == 1)
         filtered_signals.loc[buy_mask & (~trend_ok), 'signal'] = np.nan
         filtered_signals.loc[buy_mask & (~trend_ok), 'pattern'] = np.nan
+        filtered_signals.loc[buy_mask & (~trend_ok), 'metadata'] = np.nan
         
         # Filter SELLs (Require Weekly Bearish)
         sell_mask = (filtered_signals['signal'] == 'SELL')
         trend_ok_sell = (daily_trend == -1)
         filtered_signals.loc[sell_mask & (~trend_ok_sell), 'signal'] = np.nan
         filtered_signals.loc[sell_mask & (~trend_ok_sell), 'pattern'] = np.nan
+        filtered_signals.loc[sell_mask & (~trend_ok_sell), 'metadata'] = np.nan
         
         return filtered_signals
 
@@ -157,9 +172,9 @@ class PatternRecognizer:
         
         Returns:
             pd.DataFrame: 包含信号的 DataFrame。
-            Columns: [signal, pattern, pattern_sl, pattern_tp]
+            Columns: [signal, pattern, pattern_sl, pattern_tp, metadata]
         """
-        signals = pd.DataFrame(index=self.df.index, columns=['signal', 'pattern', 'pattern_sl', 'pattern_tp'])
+        signals = pd.DataFrame(index=self.df.index, columns=['signal', 'pattern', 'pattern_sl', 'pattern_tp', 'metadata'])
         
         close = self.df['close']
         low = self.df['low']
@@ -190,20 +205,17 @@ class PatternRecognizer:
                          # Simplified: Min Low during the thrust
                          sl_price = low.iloc[thrust_start_idx:i].min()
                          
-                         # Pattern TP: Fibonacci Retracement of the thrust
-                         # Thrust High = Max High during thrust
+                         # Pattern TP: Thrust High
                          thrust_high = high.iloc[thrust_start_idx:i].max()
-                         thrust_low = sl_price
-                         
-                         # Target: Usually a retest of highs or 0.618 retracement of the drop?
-                         # For Single Pen (Trend Following), target is continuation.
-                         # But DiNapoli often trades the reaction.
-                         # Let's set TP at Thrust High (Conservative) or 1.618 extension
-                         # Standard Bread & Butter: Target is simply a reaction.
-                         # Let's use Thrust High as a logical target.
                          tp_price = thrust_high
                          
-                         signals.iloc[i] = ['BUY', 'Single Penetration', sl_price, tp_price]
+                         metadata = {
+                             'thrust_start': {'date': self.df.index[thrust_start_idx], 'price': low.iloc[thrust_start_idx]},
+                             'thrust_end': {'date': self.df.index[i-1], 'price': high.iloc[i-1]},
+                             'penetration': {'date': self.df.index[i], 'price': low.iloc[i]}
+                         }
+                         
+                         signals.iloc[i] = ['BUY', 'Single Penetration', sl_price, tp_price, metadata]
                          current_bull_run = 0 
 
             # Bearish Logic
@@ -221,7 +233,13 @@ class PatternRecognizer:
                     thrust_low = low.iloc[thrust_start_idx:i].min()
                     tp_price = thrust_low
                     
-                    signals.iloc[i] = ['SELL', 'Single Penetration', sl_price, tp_price]
+                    metadata = {
+                         'thrust_start': {'date': self.df.index[thrust_start_idx], 'price': high.iloc[thrust_start_idx]},
+                         'thrust_end': {'date': self.df.index[i-1], 'price': low.iloc[i-1]},
+                         'penetration': {'date': self.df.index[i], 'price': high.iloc[i]}
+                    }
+                    
+                    signals.iloc[i] = ['SELL', 'Single Penetration', sl_price, tp_price, metadata]
                     current_bear_run = 0
                     
         return signals
@@ -233,9 +251,9 @@ class PatternRecognizer:
         
         Returns:
             pd.DataFrame: 包含信号的 DataFrame。
-            Columns: [signal, pattern, pattern_sl, pattern_tp]
+            Columns: [signal, pattern, pattern_sl, pattern_tp, metadata]
         """
-        signals = pd.DataFrame(index=self.df.index, columns=['signal', 'pattern', 'pattern_sl', 'pattern_tp'])
+        signals = pd.DataFrame(index=self.df.index, columns=['signal', 'pattern', 'pattern_sl', 'pattern_tp', 'metadata'])
         
         close = self.df['close']
         open_price = self.df['open']
@@ -282,7 +300,12 @@ class PatternRecognizer:
                 pattern_height = sl_price - min(low.iloc[i], low.iloc[i-1])
                 tp_price = min(low.iloc[i], low.iloc[i-1]) - pattern_height * 1.0
                 
-                signals.iloc[i] = ['SELL', 'Railroad Tracks', sl_price, tp_price]
+                metadata = {
+                    'bar1': {'date': self.df.index[i-1], 'open': open_price.iloc[i-1], 'close': close.iloc[i-1]},
+                    'bar2': {'date': self.df.index[i], 'open': open_price.iloc[i], 'close': close.iloc[i]}
+                }
+                
+                signals.iloc[i] = ['SELL', 'Railroad Tracks', sl_price, tp_price, metadata]
                 
             elif is_prev_bear and is_curr_bull:
                 # Bullish RRT (Bottom Reversal)
@@ -294,7 +317,12 @@ class PatternRecognizer:
                 pattern_height = max(high.iloc[i], high.iloc[i-1]) - sl_price
                 tp_price = max(high.iloc[i], high.iloc[i-1]) + pattern_height * 1.0
                 
-                signals.iloc[i] = ['BUY', 'Railroad Tracks', sl_price, tp_price]
+                metadata = {
+                    'bar1': {'date': self.df.index[i-1], 'open': open_price.iloc[i-1], 'close': close.iloc[i-1]},
+                    'bar2': {'date': self.df.index[i], 'open': open_price.iloc[i], 'close': close.iloc[i]}
+                }
+                
+                signals.iloc[i] = ['BUY', 'Railroad Tracks', sl_price, tp_price, metadata]
                 
         return signals
 
@@ -306,9 +334,9 @@ class PatternRecognizer:
                
         Returns:
             pd.DataFrame: 包含信号的 DataFrame。
-            Columns: [signal, pattern, pattern_sl, pattern_tp]
+            Columns: [signal, pattern, pattern_sl, pattern_tp, metadata]
         """
-        signals = pd.DataFrame(index=self.df.index, columns=['signal', 'pattern', 'pattern_sl', 'pattern_tp'])
+        signals = pd.DataFrame(index=self.df.index, columns=['signal', 'pattern', 'pattern_sl', 'pattern_tp', 'metadata'])
         
         close = self.df['close']
         high = self.df['high']
@@ -317,27 +345,23 @@ class PatternRecognizer:
         
         for i in range(1, len(self.df)):
             # Bullish FTP (Support Hold)
-            # Scenario: Trend is Up (or we are looking for support).
-            # Price dips below DMA 3x3 (Low < DMA) but Closes above it (Close > DMA).
-            # To avoid noise, we might want to check if Previous Close was also above DMA (Trend continuity)
-            
             if low.iloc[i] < dma3.iloc[i] and close.iloc[i] > dma3.iloc[i]:
                 # Potential Bullish FTP
-                # Check if it's a "Failure" to penetrate downwards.
-                # Usually implies we were above, tried to go below, and failed.
                 if close.iloc[i-1] > dma3.iloc[i-1]: 
                     # BUY Signal
                     sl_price = low.iloc[i] # The wick low
                     
                     # TP: Recent High or fixed R:R
-                    # Let's use a simple 1.0 R:R for now based on the wick size
                     risk = close.iloc[i] - sl_price
                     tp_price = close.iloc[i] + risk * 2.0 # 2:1 Reward
                     
-                    signals.iloc[i] = ['BUY', 'Failure to Penetrate', sl_price, tp_price]
+                    metadata = {
+                        'penetration': {'date': self.df.index[i], 'low': low.iloc[i], 'close': close.iloc[i], 'dma3': dma3.iloc[i]}
+                    }
+                    
+                    signals.iloc[i] = ['BUY', 'Failure to Penetrate', sl_price, tp_price, metadata]
             
             # Bearish FTP (Resistance Hold)
-            # Scenario: Price spikes above DMA 3x3 (High > DMA) but Closes below it (Close < DMA).
             if high.iloc[i] > dma3.iloc[i] and close.iloc[i] < dma3.iloc[i]:
                 # Potential Bearish FTP
                 if close.iloc[i-1] < dma3.iloc[i-1]:
@@ -347,6 +371,10 @@ class PatternRecognizer:
                     risk = sl_price - close.iloc[i]
                     tp_price = close.iloc[i] - risk * 2.0
                     
-                    signals.iloc[i] = ['SELL', 'Failure to Penetrate', sl_price, tp_price]
+                    metadata = {
+                        'penetration': {'date': self.df.index[i], 'high': high.iloc[i], 'close': close.iloc[i], 'dma3': dma3.iloc[i]}
+                    }
+                    
+                    signals.iloc[i] = ['SELL', 'Failure to Penetrate', sl_price, tp_price, metadata]
                     
         return signals

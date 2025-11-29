@@ -223,7 +223,8 @@ class PerformanceAnalyzer:
                 'Quantity': quantity,
                 'PnL Amount': pnl_amount,
                 'PnL %': pnl_pct,
-                'Confidence': row.get('confidence', np.nan)
+                'Confidence': row.get('confidence', np.nan),
+                'Metadata': row.get('metadata', {})
             })
             
             # Update Realized Equity Curve (Step change at exit)

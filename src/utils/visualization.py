@@ -129,7 +129,7 @@ class Visualizer:
         if indicators:
             colors = ['#00ff00', '#ff00ff', '#00ffff', '#ffff00', '#ff8800']
             for idx, (name, series) in enumerate(indicators.items()):
-                indicator_data = series.reindex(df.index).fillna(None).tolist()
+                indicator_data = [x if pd.notna(x) else None for x in series.reindex(df.index)]
                 option['series'].append({
                     'name': name,
                     'type': 'line',
@@ -468,4 +468,375 @@ class Visualizer:
             }]
         }
         
+        return option
+    @staticmethod
+    def plot_trade_detail(df: pd.DataFrame, trade_row: pd.Series, lookback: int = 30, lookforward: int = 10):
+        """
+        Create a detailed chart for a single trade with pattern visualization.
+        
+        Args:
+            df (pd.DataFrame): Full OHLCV data.
+            trade_row (pd.Series): A row from the trade log containing Entry/Exit info and Metadata.
+            lookback (int): Number of bars before pattern start to show.
+            lookforward (int): Number of bars after exit to show.
+            
+        Returns:
+            dict: ECharts option dictionary.
+        """
+        # Extract Trade Info
+        entry_date = trade_row['Entry Date']
+        exit_date = trade_row['Exit Date']
+        pattern_name = trade_row.get('Pattern', 'Unknown')
+        metadata = trade_row.get('Metadata', {})
+        
+        # Ensure dates are timestamps
+        if isinstance(entry_date, str):
+            entry_date = pd.to_datetime(entry_date)
+        if isinstance(exit_date, str):
+            exit_date = pd.to_datetime(exit_date)
+            
+        # Determine Chart Window
+        # Start: A bit before the pattern starts (if available in metadata) or Entry Date
+        start_date = entry_date
+        
+        # Try to find the earliest date in metadata
+        if isinstance(metadata, dict):
+            dates = []
+            for key, val in metadata.items():
+                if isinstance(val, dict) and 'date' in val:
+                    dates.append(pd.to_datetime(val['date']))
+            if dates:
+                start_date = min(dates)
+        
+        # Calculate indices
+        try:
+            start_idx = df.index.get_loc(start_date)
+            entry_idx = df.index.get_loc(entry_date)
+            exit_idx = df.index.get_loc(exit_date)
+        except KeyError:
+            # Fallback if exact dates not found (shouldn't happen with proper indexing)
+            return {}
+            
+        plot_start_idx = max(0, start_idx - lookback)
+        plot_end_idx = min(len(df), exit_idx + lookforward)
+        
+        # Slice Data
+        sub_df = df.iloc[plot_start_idx:plot_end_idx].copy()
+        dates = sub_df.index.strftime('%Y-%m-%d').tolist()
+        
+        # Indicators
+        # Calculate locally to ensure alignment or slice existing if passed (but here we calc for simplicity)
+        from src.indicators.basics import Indicators
+        dma_3x3 = Indicators.displaced_ma(df['close'], 3, 3).iloc[plot_start_idx:plot_end_idx]
+        dma_25x5 = Indicators.displaced_ma(df['close'], 25, 5).iloc[plot_start_idx:plot_end_idx]
+        
+        # Base Option
+        option = {
+            'backgroundColor': '#1e1e1e',
+            'title': {
+                'text': f"{pattern_name} Trade Details",
+                'subtext': f"PnL: {trade_row['PnL Amount']:.2f} ({trade_row['PnL %']:.2%})",
+                'left': 'center',
+                'textStyle': {'color': '#fff'},
+                'subtextStyle': {'color': '#00ff00' if trade_row['PnL Amount'] > 0 else '#ff0000', 'fontSize': 14}
+            },
+            'tooltip': {
+                'trigger': 'axis',
+                'axisPointer': {'type': 'cross'},
+                'backgroundColor': 'rgba(50, 50, 50, 0.9)',
+                'textStyle': {'color': '#fff'}
+            },
+            'legend': {
+                'data': ['Price', 'Volume', '3x3 DMA', '25x5 DMA', 'Pattern', 'SL', 'TP'],
+                'top': '10%',
+                'textStyle': {'color': '#fff'}
+            },
+            'axisPointer': {
+                'link': [{'xAxisIndex': 'all'}]
+            },
+            'grid': [
+                {'left': '5%', 'right': '5%', 'top': '20%', 'height': '55%'},
+                {'left': '5%', 'right': '5%', 'top': '80%', 'height': '15%'}
+            ],
+            'xAxis': [
+                {
+                    'type': 'category',
+                    'data': dates,
+                    'gridIndex': 0,
+                    'axisLine': {'lineStyle': {'color': '#666'}},
+                    'axisLabel': {'show': False}
+                },
+                {
+                    'type': 'category',
+                    'data': dates,
+                    'gridIndex': 1,
+                    'axisLine': {'lineStyle': {'color': '#666'}},
+                    'axisLabel': {'color': '#999'}
+                }
+            ],
+            'yAxis': [
+                {
+                    'type': 'value',
+                    'scale': True,
+                    'gridIndex': 0,
+                    'splitLine': {'lineStyle': {'color': '#333'}},
+                    'axisLine': {'lineStyle': {'color': '#666'}},
+                    'axisLabel': {'color': '#999'}
+                },
+                {
+                    'type': 'value',
+                    'scale': True,
+                    'gridIndex': 1,
+                    'splitLine': {'show': False},
+                    'axisLine': {'lineStyle': {'color': '#666'}},
+                    'axisLabel': {'show': False}
+                }
+            ],
+            'series': []
+        }
+        
+        # 1. Candlestick
+        k_data = sub_df[['open', 'close', 'low', 'high']].values.tolist()
+        option['series'].append({
+            'name': 'Price',
+            'type': 'candlestick',
+            'data': k_data,
+            'xAxisIndex': 0,
+            'yAxisIndex': 0,
+            'itemStyle': {
+                'color': '#ef232a',
+                'color0': '#14b143',
+                'borderColor': '#ef232a',
+                'borderColor0': '#14b143'
+            }
+        })
+        
+        # 2. Volume
+        vol_data = sub_df['volume'].tolist()
+        # Color volume bars based on price change
+        vol_colors = ['#ef232a' if row['close'] >= row['open'] else '#14b143' for _, row in sub_df.iterrows()]
+        
+        option['series'].append({
+            'name': 'Volume',
+            'type': 'bar',
+            'data': [{'value': v, 'itemStyle': {'color': c}} for v, c in zip(vol_data, vol_colors)],
+            'xAxisIndex': 1,
+            'yAxisIndex': 1
+        })
+        
+        # 3. Indicators
+        option['series'].append({
+            'name': '3x3 DMA',
+            'type': 'line',
+            'data': [x if pd.notna(x) else None for x in dma_3x3],
+            'xAxisIndex': 0,
+            'yAxisIndex': 0,
+            'smooth': True,
+            'lineStyle': {'color': '#00ffff', 'width': 1},
+            'symbol': 'none'
+        })
+        
+        option['series'].append({
+            'name': '25x5 DMA',
+            'type': 'line',
+            'data': [x if pd.notna(x) else None for x in dma_25x5],
+            'xAxisIndex': 0,
+            'yAxisIndex': 0,
+            'smooth': True,
+            'lineStyle': {'color': '#ff00ff', 'width': 2},
+            'symbol': 'none'
+        })
+        
+        # 3. Pattern Structure (Double Repo A-B-C)
+        if pattern_name == 'Double Repo' and isinstance(metadata, dict):
+            # Extract points
+            pts = []
+            for pt_name in ['A', 'B', 'C']:
+                if pt_name in metadata:
+                    pt_date = pd.to_datetime(metadata[pt_name]['date'])
+                    if pt_date in sub_df.index:
+                        idx = sub_df.index.get_loc(pt_date)
+                        price = metadata[pt_name]['price']
+                        pts.append([idx, price])
+            
+            # Connect A-B-C
+            if len(pts) >= 3:
+                option['series'].append({
+                    'name': 'Pattern',
+                    'type': 'line',
+                    'data': pts,
+                    'lineStyle': {'color': '#ffff00', 'width': 2, 'type': 'dashed'},
+                    'symbol': 'circle',
+                    'symbolSize': 8,
+                    'label': {'show': False, 'formatter': '{b}'} # Need custom formatter or separate series for labels
+                })
+                
+                # Add labels for A, B, C
+                # We can use markPoint
+                mark_data = []
+                labels = ['A', 'B', 'C']
+                for i, pt in enumerate(pts):
+                    mark_data.append({
+                        'coord': pt,
+                        'value': labels[i],
+                        'symbolSize': 24,
+                        'itemStyle': {'color': '#ffff00'}
+                    })
+                
+                option['series'][-1]['markPoint'] = {
+                    'data': mark_data,
+                    'label': {'color': '#000'}
+                }
+
+        elif pattern_name == 'Single Penetration' and isinstance(metadata, dict):
+            # Visualize Thrust and Penetration
+            if 'thrust_start' in metadata and 'thrust_end' in metadata:
+                t_start = metadata['thrust_start']
+                t_end = metadata['thrust_end']
+                
+                t_start_date = pd.to_datetime(t_start['date'])
+                t_end_date = pd.to_datetime(t_end['date'])
+                
+                if t_start_date in sub_df.index and t_end_date in sub_df.index:
+                    idx1 = sub_df.index.get_loc(t_start_date)
+                    idx2 = sub_df.index.get_loc(t_end_date)
+                    
+                    option['series'].append({
+                        'name': 'Thrust',
+                        'type': 'line',
+                        'data': [[idx1, t_start['price']], [idx2, t_end['price']]],
+                        'lineStyle': {'color': '#ffff00', 'width': 2, 'type': 'solid'},
+                        'symbol': 'none'
+                    })
+            
+            if 'penetration' in metadata:
+                pen = metadata['penetration']
+                pen_date = pd.to_datetime(pen['date'])
+                if pen_date in sub_df.index:
+                    idx = sub_df.index.get_loc(pen_date)
+                    option['series'].append({
+                        'name': 'Penetration',
+                        'type': 'scatter',
+                        'data': [[idx, pen['price']]],
+                        'symbol': 'circle',
+                        'symbolSize': 8,
+                        'itemStyle': {'color': '#ff00ff'}
+                    })
+
+        elif pattern_name == 'Railroad Tracks' and isinstance(metadata, dict):
+            # Highlight the two bars
+            if 'bar1' in metadata and 'bar2' in metadata:
+                b1 = metadata['bar1']
+                b2 = metadata['bar2']
+                d1 = pd.to_datetime(b1['date'])
+                d2 = pd.to_datetime(b2['date'])
+                
+                if d1 in sub_df.index and d2 in sub_df.index:
+                    idx1 = sub_df.index.get_loc(d1)
+                    idx2 = sub_df.index.get_loc(d2)
+                    
+                    # Draw a box or just mark them
+                    option['series'].append({
+                        'name': 'RRT',
+                        'type': 'scatter',
+                        'data': [
+                            [idx1, (b1['open'] + b1['close'])/2],
+                            [idx2, (b2['open'] + b2['close'])/2]
+                        ],
+                        'symbol': 'rect',
+                        'symbolSize': [10, 20], # Approximate
+                        'itemStyle': {'color': 'rgba(255, 255, 0, 0.3)', 'borderColor': '#ffff00'}
+                    })
+
+        elif pattern_name == 'Failure to Penetrate' and isinstance(metadata, dict):
+            if 'penetration' in metadata:
+                pen = metadata['penetration']
+                pen_date = pd.to_datetime(pen['date'])
+                if pen_date in sub_df.index:
+                    idx = sub_df.index.get_loc(pen_date)
+                    # Mark the failure point
+                    option['series'].append({
+                        'name': 'FTP',
+                        'type': 'scatter',
+                        'data': [[idx, pen.get('close', 0)]],
+                        'symbol': 'diamond',
+                        'symbolSize': 12,
+                        'itemStyle': {'color': '#00ffff'}
+                    })
+
+        # 4. Trade Execution (Entry -> Exit)
+        # Map dates to indices in the sub_df
+        try:
+            sub_entry_idx = sub_df.index.get_loc(entry_date)
+            sub_exit_idx = sub_df.index.get_loc(exit_date)
+            
+            entry_price = trade_row['Entry Price']
+            exit_price = trade_row['Exit Price']
+            
+            # Entry Marker
+            option['series'].append({
+                'name': 'Entry',
+                'type': 'scatter',
+                'data': [[sub_entry_idx, entry_price]],
+                'symbol': 'arrow',
+                'symbolSize': 10,
+                'symbolRotate': 0 if entry_price < exit_price else 180, # Point up for buy? No, arrow usually points to location
+                'itemStyle': {'color': '#ffffff'},
+                'label': {'show': True, 'position': 'bottom', 'formatter': 'Entry', 'color': '#fff'}
+            })
+            
+            # Exit Marker
+            option['series'].append({
+                'name': 'Exit',
+                'type': 'scatter',
+                'data': [[sub_exit_idx, exit_price]],
+                'symbol': 'arrow',
+                'symbolRotate': 180 if entry_price < exit_price else 0,
+                'symbolSize': 10,
+                'itemStyle': {'color': '#ffffff'},
+                'label': {'show': True, 'position': 'top', 'formatter': 'Exit', 'color': '#fff'}
+            })
+            
+            # SL and TP Lines
+            sl_price = trade_row['Stop Loss']
+            tp_price = trade_row['Take Profit']
+            
+            # Draw horizontal lines from Entry to Exit (or slightly beyond)
+            # SL
+            option['series'].append({
+                'name': 'SL',
+                'type': 'line',
+                'data': [[sub_entry_idx, sl_price], [sub_exit_idx, sl_price]],
+                'lineStyle': {'color': '#ff0000', 'width': 2, 'type': 'dotted'},
+                'symbol': 'none',
+                'markPoint': {
+                    'data': [{
+                        'coord': [sub_entry_idx, sl_price],
+                        'value': 'SL',
+                        'symbolSize': 0,
+                        'label': {'position': 'left', 'color': '#ff0000'}
+                    }]
+                }
+            })
+            
+            # TP
+            option['series'].append({
+                'name': 'TP',
+                'type': 'line',
+                'data': [[sub_entry_idx, tp_price], [sub_exit_idx, tp_price]],
+                'lineStyle': {'color': '#00ff00', 'width': 2, 'type': 'dotted'},
+                'symbol': 'none',
+                'markPoint': {
+                    'data': [{
+                        'coord': [sub_entry_idx, tp_price],
+                        'value': 'TP',
+                        'symbolSize': 0,
+                        'label': {'position': 'left', 'color': '#00ff00'}
+                    }]
+                }
+            })
+            
+        except KeyError:
+            pass
+            
         return option
