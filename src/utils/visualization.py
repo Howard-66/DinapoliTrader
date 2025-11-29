@@ -220,7 +220,7 @@ class Visualizer:
             
             # Add realized equity curve
             if equity is not None:
-                equity_data = equity.reindex(df.index).fillna(method='ffill').tolist()
+                equity_data = equity.reindex(df.index).ffill().tolist()
                 option['series'].append({
                     'name': 'Realized Equity',
                     'type': 'line',
@@ -235,7 +235,7 @@ class Visualizer:
             
             # Add floating equity curve
             if floating_equity is not None:
-                floating_equity_data = floating_equity.reindex(df.index).fillna(method='ffill').tolist()
+                floating_equity_data = floating_equity.reindex(df.index).ffill().tolist()
                 option['series'].append({
                     'name': 'Floating Equity',
                     'type': 'line',

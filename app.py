@@ -3,7 +3,13 @@ import numpy as np
 import pandas as pd
 import sys
 import os
+import warnings
 from streamlit_echarts5 import st_echarts
+
+# Suppress sklearn version warnings
+warnings.filterwarnings("ignore", message="Trying to unpickle estimator")
+# Suppress pandas fillna method warning (from tushare)
+# warnings.filterwarnings("ignore", category=FutureWarning, message=".*fillna with 'method' is deprecated.*")
 
 # Add src to path
 sys.path.append(os.path.join(os.path.dirname(__file__), '.'))

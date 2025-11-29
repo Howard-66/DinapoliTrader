@@ -146,7 +146,7 @@ class PatternRecognizer:
         
         # Resample Weekly Trend to Daily (ffill)
         # Reindex to match daily df
-        daily_trend = weekly_trend.reindex(self.df.index, method='ffill')
+        daily_trend = weekly_trend.reindex(self.df.index).ffill()
         
         filtered_signals = signals.copy()
         
