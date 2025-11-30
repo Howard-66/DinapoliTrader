@@ -511,29 +511,64 @@ if analysis_mode == "Single Asset":
             m_c1, m_c2 = st.columns(2)
             with m_c1:
                 # Download Model
-                clf = SignalClassifier()
-                if clf.is_trained and os.path.exists(clf.model_path):
-                    with open(clf.model_path, "rb") as f:
+                st.write("**Download Model Files**")
+                clf_download = SignalClassifier()
+                if clf_download.is_trained and os.path.exists(clf_download.model_path):
+                    # Download model file
+                    with open(clf_download.model_path, "rb") as f:
                         st.download_button(
-                            label="Download Trained Model",
+                            label="📥 Download Model (.joblib)",
                             data=f,
                             file_name="signal_classifier.joblib",
-                            mime="application/octet-stream"
+                            mime="application/octet-stream",
+                            use_container_width=True
                         )
+                    
+                    # Download metadata file if exists
+                    metadata_path = os.path.join(os.path.dirname(clf_download.model_path), 'signal_classifier_metadata.json')
+                    if os.path.exists(metadata_path):
+                        with open(metadata_path, "rb") as f:
+                            st.download_button(
+                                label="📥 Download Metadata (.json)",
+                                data=f,
+                                file_name="signal_classifier_metadata.json",
+                                mime="application/json",
+                                use_container_width=True
+                            )
+                    else:
+                        st.info("💡 No metadata file available for this model.")
                 else:
                     st.info("No trained model found to download.")
                         
             with m_c2:
                 # Upload Model
-                uploaded_file = st.file_uploader("Upload Pre-trained Model", type=['joblib'])
+                st.write("**Upload Model Files**")
+                uploaded_file = st.file_uploader("Upload Model (.joblib)", type=['joblib'], key='model_uploader')
+                uploaded_metadata = st.file_uploader("Upload Metadata (.json) - Optional", type=['json'], key='metadata_uploader')
+                
                 if uploaded_file is not None:
-                    # Save uploaded file
-                    with open(clf.model_path, "wb") as f:
-                        f.write(uploaded_file.getbuffer())
-                    st.success("Model uploaded successfully! Reloading...")
-                    # Force reload
-                    clf = SignalClassifier()
-                    st.experimental_rerun()
+                    # Check if this is a new upload (not already processed)
+                    upload_key = f"{uploaded_file.name}_{uploaded_metadata.name if uploaded_metadata else 'no_meta'}"
+                    if 'last_uploaded_model' not in st.session_state or st.session_state.last_uploaded_model != upload_key:
+                        # Save uploaded model file
+                        with open(clf.model_path, "wb") as f:
+                            f.write(uploaded_file.getbuffer())
+                        
+                        # Save metadata file if provided
+                        if uploaded_metadata is not None:
+                            metadata_path = os.path.join(os.path.dirname(clf.model_path), 'signal_classifier_metadata.json')
+                            with open(metadata_path, "wb") as f:
+                                f.write(uploaded_metadata.getbuffer())
+                            st.success("Model and metadata uploaded successfully!")
+                        else:
+                            # Remove old metadata if no new metadata provided
+                            metadata_path = os.path.join(os.path.dirname(clf.model_path), 'signal_classifier_metadata.json')
+                            if os.path.exists(metadata_path):
+                                os.remove(metadata_path)
+                            st.success("Model uploaded successfully! (No metadata provided)")
+                        
+                        st.session_state.last_uploaded_model = upload_key
+                        st.rerun()
 
     else:
         st.info("Please load data to proceed.")
