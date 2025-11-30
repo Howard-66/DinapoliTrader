@@ -394,6 +394,73 @@ if analysis_mode == "Single Asset":
         with tab_ml:
             st.header("ML Lab 🧪")
             
+            # Display Current Model Info
+            st.subheader("📊 Current Model Information")
+            clf = SignalClassifier()
+            if clf.is_trained:
+                metadata = clf.get_metadata()
+                if metadata:
+                    col1, col2, col3 = st.columns(3)
+                    
+                    with col1:
+                        st.metric("Symbol", metadata.get('symbol', 'N/A'))
+                        st.metric("Training Samples", metadata.get('total_samples', 'N/A'))
+                        
+                    with col2:
+                        start = metadata.get('start_date', 'N/A')
+                        end = metadata.get('end_date', 'N/A')
+                        if start != 'N/A' and end != 'N/A':
+                            st.metric("Date Range", f"{start[:10]} to {end[:10]}")
+                        else:
+                            st.metric("Date Range", "N/A")
+                        
+                        metrics = metadata.get('performance_metrics', {})
+                        accuracy = metrics.get('accuracy', 0)
+                        st.metric("Accuracy", f"{accuracy:.2%}")
+                        
+                    with col3:
+                        train_params = metadata.get('training_parameters', {})
+                        st.metric("Holding Period", f"{train_params.get('holding_period', 'N/A')} bars")
+                        precision = metrics.get('precision', 0)
+                        st.metric("Precision", f"{precision:.2%}")
+                    
+                    # Additional details in expander
+                    with st.expander("📋 Detailed Training Information"):
+                        info_col1, info_col2 = st.columns(2)
+                        
+                        with info_col1:
+                            st.write("**Training Parameters:**")
+                            st.write(f"- Stop Loss: {train_params.get('stop_loss_pct', 0):.1%}")
+                            st.write(f"- Take Profit: {train_params.get('take_profit_pct', 0):.1%}")
+                            st.write(f"- Holding Period: {train_params.get('holding_period', 'N/A')} bars")
+                            
+                            st.write("\n**Model Hyperparameters:**")
+                            model_params = metadata.get('model_hyperparameters', {})
+                            st.write(f"- Estimators: {model_params.get('n_estimators', 'N/A')}")
+                            st.write(f"- Max Depth: {model_params.get('max_depth', 'N/A')}")
+                            
+                        with info_col2:
+                            st.write("**Dataset Information:**")
+                            st.write(f"- Total Samples: {metadata.get('total_samples', 'N/A')}")
+                            st.write(f"- Training Samples: {metadata.get('training_samples', 'N/A')}")
+                            st.write(f"- Test Samples: {metadata.get('test_samples', 'N/A')}")
+                            st.write(f"- Positive Samples: {metadata.get('positive_samples', 'N/A')}")
+                            st.write(f"- Negative Samples: {metadata.get('negative_samples', 'N/A')}")
+                            st.write(f"- Feature Count: {metadata.get('feature_count', 'N/A')}")
+                            
+                            st.write("\n**Training Timestamp:**")
+                            timestamp = metadata.get('training_timestamp', 'N/A')
+                            if timestamp != 'N/A':
+                                st.write(f"{timestamp[:19].replace('T', ' ')}")
+                            else:
+                                st.write("N/A")
+                else:
+                    st.info("Model is trained but metadata is not available. This may be an older model.")
+            else:
+                st.info("No trained model found. Train a model to see information here.")
+            
+            st.markdown("---")
+            
             c1, c2 = st.columns(2)
             
             with c1:
@@ -406,21 +473,31 @@ if analysis_mode == "Single Asset":
                         train_signals.update(train_recognizer.detect_single_penetration())
                         
                         trainer = ModelTrainer()
-                        result = trainer.train(train_df, train_signals)
+                        result = trainer.train(
+                            train_df, 
+                            train_signals,
+                            symbol=symbol,
+                            start_date=str(start_date),
+                            end_date=str(end_date),
+                            holding_period=5,
+                            stop_loss_pct=0.02,
+                            take_profit_pct=0.05
+                        )
                         
                         if result['status'] == 'success':
                             st.success(f"Trained on {result['samples']} signals.")
                             st.write(f"Accuracy: {result['accuracy']:.2f}")
                             st.write(f"Precision: {result['precision']:.2f}")
+                            st.rerun()
                         else:
                             st.error(result['message'])
             
             with c2:
                 st.subheader("Feature Importance")
                 if st.button("Show Feature Importance"):
-                    clf = SignalClassifier()
-                    if clf.is_trained:
-                        importance_df = clf.get_feature_importance()
+                    clf_temp = SignalClassifier()
+                    if clf_temp.is_trained:
+                        importance_df = clf_temp.get_feature_importance()
                         if not importance_df.empty:
                             st.bar_chart(importance_df.set_index('Feature'))
                         else:

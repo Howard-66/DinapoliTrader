@@ -1,0 +1,26 @@
+{
+  "training_timestamp": "2025-11-30T20:15:10.558003",
+  "symbol": "601398.SH",
+  "start_date": "2011-01-01",
+  "end_date": "2020-12-31",
+  "total_samples": 127,
+  "training_samples": 101,
+  "test_samples": 26,
+  "training_parameters": {
+    "holding_period": 5,
+    "stop_loss_pct": 0.02,
+    "take_profit_pct": 0.05
+  },
+  "model_hyperparameters": {
+    "n_estimators": 100,
+    "max_depth": 5,
+    "random_state": 42
+  },
+  "performance_metrics": {
+    "accuracy": 0.5769230769230769,
+    "precision": 0.6666666666666666
+  },
+  "feature_count": 6,
+  "positive_samples": 55,
+  "negative_samples": 72
+}

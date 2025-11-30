@@ -4,6 +4,7 @@ from sklearn.ensemble import RandomForestClassifier
 from sklearn.model_selection import train_test_split
 from sklearn.metrics import accuracy_score, precision_score
 import joblib
+import json
 import os
 
 from src.ml.features import FeatureExtractor
@@ -18,8 +19,10 @@ class SignalClassifier:
             self.model_path = model_path
         else:
             self.model_path = os.path.join(os.path.dirname(__file__), 'signal_classifier.joblib')
+        self.metadata_path = os.path.join(os.path.dirname(self.model_path), 'signal_classifier_metadata.json')
         self.model = None
         self.is_trained = False
+        self.metadata = None
         self._load_model()
         
     def _load_model(self):
@@ -27,8 +30,29 @@ class SignalClassifier:
             try:
                 self.model = joblib.load(self.model_path)
                 self.is_trained = True
+                self.load_metadata()
             except Exception as e:
                 print(f"Failed to load model: {e}")
+                
+    def load_metadata(self):
+        """
+        Load training metadata from JSON file.
+        """
+        if os.path.exists(self.metadata_path):
+            try:
+                with open(self.metadata_path, 'r') as f:
+                    self.metadata = json.load(f)
+            except Exception as e:
+                print(f"Failed to load metadata: {e}")
+                self.metadata = None
+        else:
+            self.metadata = None
+            
+    def get_metadata(self) -> dict:
+        """
+        Get the training metadata.
+        """
+        return self.metadata if self.metadata else {}
 
     def predict_proba(self, df: pd.DataFrame, idx: int) -> float:
         """

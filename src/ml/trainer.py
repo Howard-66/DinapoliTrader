@@ -4,7 +4,9 @@ from sklearn.ensemble import RandomForestClassifier
 from sklearn.model_selection import train_test_split
 from sklearn.metrics import accuracy_score, precision_score
 import joblib
+import json
 import os
+from datetime import datetime
 from src.ml.features import FeatureExtractor
 
 class ModelTrainer:
@@ -15,6 +17,17 @@ class ModelTrainer:
     def __init__(self):
         self.model = RandomForestClassifier(n_estimators=100, max_depth=5, random_state=42)
         self.model_path = os.path.join(os.path.dirname(__file__), 'signal_classifier.joblib')
+        self.metadata_path = os.path.join(os.path.dirname(__file__), 'signal_classifier_metadata.json')
+        
+    def save_metadata(self, metadata: dict):
+        """
+        Save training metadata to JSON file.
+        """
+        try:
+            with open(self.metadata_path, 'w') as f:
+                json.dump(metadata, f, indent=2, default=str)
+        except Exception as e:
+            print(f"Failed to save metadata: {e}")
         
     def generate_dataset(self, df: pd.DataFrame, signals: pd.DataFrame, 
                          holding_period: int = 5, 
@@ -77,11 +90,15 @@ class ModelTrainer:
             
         return pd.DataFrame(X, columns=features_df.columns), np.array(y), features_df.columns
         
-    def train(self, df: pd.DataFrame, signals: pd.DataFrame):
+    def train(self, df: pd.DataFrame, signals: pd.DataFrame, 
+              symbol: str = None, start_date: str = None, end_date: str = None,
+              holding_period: int = 5, stop_loss_pct: float = 0.02, 
+              take_profit_pct: float = 0.05):
         """
-        Train the model and save it.
+        Train the model and save it with metadata.
         """
-        X, y, feature_names = self.generate_dataset(df, signals)
+        X, y, feature_names = self.generate_dataset(df, signals, holding_period, 
+                                                     stop_loss_pct, take_profit_pct)
         
         if len(X) < 10:
             return {"status": "error", "message": "Not enough signals to train (need > 10)"}
@@ -96,6 +113,36 @@ class ModelTrainer:
         
         # Save model
         joblib.dump(self.model, self.model_path)
+        
+        # Prepare and save metadata
+        metadata = {
+            "training_timestamp": datetime.now().isoformat(),
+            "symbol": symbol,
+            "start_date": start_date,
+            "end_date": end_date,
+            "total_samples": len(X),
+            "training_samples": len(X_train),
+            "test_samples": len(X_test),
+            "training_parameters": {
+                "holding_period": holding_period,
+                "stop_loss_pct": stop_loss_pct,
+                "take_profit_pct": take_profit_pct
+            },
+            "model_hyperparameters": {
+                "n_estimators": self.model.n_estimators,
+                "max_depth": self.model.max_depth,
+                "random_state": self.model.random_state
+            },
+            "performance_metrics": {
+                "accuracy": accuracy,
+                "precision": precision
+            },
+            "feature_count": len(feature_names),
+            "positive_samples": int(y.sum()),
+            "negative_samples": int(len(y) - y.sum())
+        }
+        
+        self.save_metadata(metadata)
         
         return {
             "status": "success",
