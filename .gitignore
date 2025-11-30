@@ -65,4 +65,4 @@ logs/
 output/
 .env.local
 .env.*.local
-src/ml/signal_classifier.joblib
+src/ml/*.joblib
