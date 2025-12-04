@@ -21,11 +21,10 @@ from src.utils.visualization import Visualizer
 from src.ml.classifier import SignalClassifier
 from src.ml.llm_analyst import LLMAnalyst
 from src.utils.performance import PerformanceAnalyzer
-from src.utils.performance import PerformanceAnalyzer
-from src.optimization.optimizer import StrategyOptimizer
 from src.optimization.optimizer import StrategyOptimizer
 from src.ml.trainer import ModelTrainer
 from src.utils.scanner import MarketScanner
+from src.utils.backtest_results import BacktestResultsManager
 
 st.set_page_config(page_title="DiNapoli Trader", layout="wide")
 
@@ -85,166 +84,198 @@ if analysis_mode == "Single Asset":
         signals_sp = recognizer.detect_single_penetration()
         
         # --- Main Area Tabs ---
-        tab_backtest, tab_robustness, tab_ml = st.tabs(["Strategy Backtest", "Walk-Forward Analysis", "Machine Learning Lab"])
+        tab_backtest, tab_comparison, tab_robustness, tab_ml = st.tabs(["Strategy Backtest", "Results Comparison", "Walk-Forward Analysis", "Machine Learning Lab"])
         
         # --- Tab 1: Backtest ---
         # --- Tab 1: Backtest ---
         with tab_backtest:
+            # Check if there's loaded backtest data
+            use_loaded_data = False
+            if 'loaded_backtest' in st.session_state and st.session_state['loaded_backtest'] is not None:
+                loaded_data = st.session_state['loaded_backtest']
+                use_loaded_data = True
+                
+                # Display banner indicating loaded data
+                st.info(f"📂 **Loaded Result**: {loaded_data['metadata'].get('description', 'No description')} | "
+                       f"Symbol: {loaded_data['metadata']['symbol']} | "
+                       f"Date: {loaded_data['metadata']['start_date']} to {loaded_data['metadata']['end_date']}")
+                
+                # Button to clear loaded data and run new backtest
+                if st.button("🔄 Clear Loaded Data & Run New Backtest", type="primary"):
+                    st.session_state['loaded_backtest'] = None
+                    st.rerun()
+                
+                # Display loaded parameters (read-only)
+                with st.expander("⚙️ Loaded Strategy Settings (Read-Only)", expanded=False):
+                    st.json(loaded_data['parameters'])
+            
             # st.header(f"Backtest: {symbol}")
             
-            with st.expander("⚙️ Strategy Settings", expanded=True):
-                c1, c2, c3, c4 = st.columns(4)
+            # Only show strategy settings if not using loaded data
+            if not use_loaded_data:
+                with st.expander("⚙️ Strategy Settings", expanded=True):
+                    c1, c2, c3, c4 = st.columns(4)
+                    
+                    with c1:
+                        st.write("Active Strategies")
+                        selected_strategies = st.pills(
+                            "Active Strategies",
+                            ["Double Repo", "Single Penetration", "Railroad Tracks", "Failure to Penetrate"],
+                            default=["Double Repo", "Single Penetration", "Railroad Tracks", "Failure to Penetrate"],
+                            selection_mode="multi",
+                            label_visibility="collapsed"
+                        )
+                        
+                        st.write("Filters")
+                        enable_trend_filter = st.checkbox("Enable Trend Filter (SMA 200)", value=False)
+                        enable_mtf_filter = st.checkbox("Enable MTF Filter (Weekly Trend)", value=False, help="Filter signals based on Weekly 25x5 DMA Trend.")
+                        min_confidence = st.slider("Min Confidence", 0.0, 1.0, 0.5, 0.05)
+                    
+                    with c2:
+                        st.write("Exit Strategy")
+                        sl_mode = st.selectbox("Stop Loss Mode", ["Pattern Based", "ATR Based", "Fixed Percentage"], index=0)
+                        tp_mode = st.selectbox("Take Profit Mode", ["Pattern Based (Fib)", "Fixed Percentage"], index=0)
+                        holding_period = st.number_input("Holding Period (Bars)", min_value=1, value=30)
+                    
+                    with c3:
+                        st.write("Parameters")
+                        stop_loss = 0.02
+                        atr_multiplier = 2.0
+                        take_profit = 0.05
+                        
+                        if sl_mode == "Fixed Percentage":
+                            stop_loss = st.number_input("Stop Loss (%)", 0.1, 20.0, 2.0, 0.1) / 100
+                        elif sl_mode == "ATR Based":
+                            atr_multiplier = st.number_input("ATR Multiplier", 1.0, 5.0, 2.0, 0.5)
+                            
+                        if tp_mode == "Fixed Percentage":
+                            take_profit = st.number_input("Take Profit (%)", 0.1, 50.0, 5.0, 0.1) / 100
+                            
+                    with c4:
+                        # Risk Management
+                        st.write("Risk Management")
+                        initial_capital = st.number_input("Initial Capital", value=100000.0, step=1000.0)
+                        use_dynamic_sizing = st.checkbox("Use Dynamic Position Sizing", value=True)
+                        risk_per_trade = 0.01
+                        if use_dynamic_sizing:
+                            risk_per_trade = st.number_input("Risk per Trade (%)", 0.1, 5.0, 2.0, 0.1) / 100
+
+                # --- Backtest Execution ---
                 
-                with c1:
-                    st.write("Active Strategies")
-                    selected_strategies = st.pills(
-                        "Active Strategies",
-                        ["Double Repo", "Single Penetration", "Railroad Tracks", "Failure to Penetrate"],
-                        default=["Double Repo", "Single Penetration", "Railroad Tracks", "Failure to Penetrate"],
-                        selection_mode="multi",
-                        label_visibility="collapsed"
+                # Detect New Patterns
+                signals_rrt = recognizer.detect_railroad_tracks()
+                signals_ftp = recognizer.detect_failure_to_penetrate()
+
+                # Apply Filters
+                if enable_trend_filter:
+                    signals_dr = recognizer.apply_trend_filter(signals_dr, sma_200)
+                    signals_sp = recognizer.apply_trend_filter(signals_sp, sma_200)
+                    signals_rrt = recognizer.apply_trend_filter(signals_rrt, sma_200)
+                    signals_ftp = recognizer.apply_trend_filter(signals_ftp, sma_200)
+
+                if enable_mtf_filter:
+                    weekly_df = DataFeed.resample_to_weekly(df)
+                    signals_dr = recognizer.apply_mtf_filter(signals_dr, weekly_df)
+                    signals_sp = recognizer.apply_mtf_filter(signals_sp, weekly_df)
+                    signals_rrt = recognizer.apply_mtf_filter(signals_rrt, weekly_df)
+                    signals_ftp = recognizer.apply_mtf_filter(signals_ftp, weekly_df)
+                
+                # Merge Signals
+                signals = pd.DataFrame(index=df.index, columns=['signal', 'pattern', 'pattern_sl', 'pattern_tp', 'metadata'])
+                
+                # Helper to merge signals
+                def merge_signals(target_df, source_df, strategy_name):
+                    if strategy_name in selected_strategies:
+                        mask = source_df['signal'].notna()
+                        # Only fill where target is empty to avoid overwriting (priority: DR > SP > RRT > FTP)
+                        mask_fill = (target_df['signal'].isna()) & mask
+                        target_df.loc[mask_fill] = source_df.loc[mask_fill]
+
+                merge_signals(signals, signals_dr, "Double Repo")
+                merge_signals(signals, signals_sp, "Single Penetration")
+                merge_signals(signals, signals_rrt, "Railroad Tracks")
+                merge_signals(signals, signals_ftp, "Failure to Penetrate")
+
+                # ML Prediction Filter
+                buy_signals = signals[signals['signal'] == 'BUY']
+                if not buy_signals.empty:
+                    clf = SignalClassifier()
+                    if clf.is_trained:
+                        probs = []
+                        for idx in buy_signals.index:
+                            if idx in df.index:
+                                probs.append(clf.predict_proba(df, idx))
+                            else:
+                                probs.append(0.5)
+                        
+                        buy_signals = buy_signals.copy()
+                        buy_signals['confidence'] = probs
+                        
+                        # Update main signals df with confidence
+                        signals['confidence'] = np.nan
+                        signals.loc[buy_signals.index, 'confidence'] = buy_signals['confidence']
+                        
+                        # Filter
+                        low_conf_indices = buy_signals[buy_signals['confidence'] < min_confidence].index
+                        signals.loc[low_conf_indices, 'signal'] = np.nan
+                        signals.loc[low_conf_indices, 'pattern'] = np.nan
+                        
+                        buy_signals = buy_signals[buy_signals['confidence'] >= min_confidence]
+                    else:
+                        buy_signals = buy_signals.copy()
+                        buy_signals['confidence'] = 0.5
+
+            # Calculate Metrics (or use loaded data)
+            if use_loaded_data:
+                # Use loaded metrics
+                metrics = loaded_data['metrics']
+                equity_curve = metrics.get('Equity Curve')
+                drawdown_curve = metrics.get('Drawdown Curve')
+                # For loaded data, we don't have signal markers or indicators
+                signal_markers = {}
+                indicators = {}
+            else:
+                # Calculate metrics from backtest
+                metrics = None
+                equity_curve = None
+                drawdown_curve = None
+                
+                if not buy_signals.empty:
+                    perf_analyzer = PerformanceAnalyzer(df, signals)
+                    metrics = perf_analyzer.calculate_metrics(
+                        holding_period=holding_period, 
+                        sl_mode='Pattern' if sl_mode == 'Pattern Based' else ('ATR' if sl_mode == 'ATR Based' else 'Fixed'),
+                        tp_mode='Pattern' if tp_mode == 'Pattern Based (Fib)' else 'Fixed',
+                        stop_loss_pct=stop_loss, 
+                        take_profit_pct=take_profit,
+                        initial_capital=initial_capital,
+                        use_dynamic_sizing=use_dynamic_sizing,
+                        risk_per_trade_pct=risk_per_trade,
+                        atr_multiplier=atr_multiplier
                     )
-                    
-                    st.write("Filters")
-                    enable_trend_filter = st.checkbox("Enable Trend Filter (SMA 200)", value=False)
-                    enable_mtf_filter = st.checkbox("Enable MTF Filter (Weekly Trend)", value=False, help="Filter signals based on Weekly 25x5 DMA Trend.")
-                    min_confidence = st.slider("Min Confidence", 0.0, 1.0, 0.5, 0.05)
+                    equity_curve = metrics['Equity Curve']
+                    drawdown_curve = metrics['Drawdown Curve']
+
+                # Visualization (for new backtest)
+                indicators = {}
+                if enable_trend_filter:
+                    indicators['SMA 200'] = sma_200
                 
-                with c2:
-                    st.write("Exit Strategy")
-                    sl_mode = st.selectbox("Stop Loss Mode", ["Pattern Based", "ATR Based", "Fixed Percentage"], index=0)
-                    tp_mode = st.selectbox("Take Profit Mode", ["Pattern Based (Fib)", "Fixed Percentage"], index=0)
-                    holding_period = st.number_input("Holding Period (Bars)", min_value=1, value=30)
+                # Prepare signal markers for visualization
+                signal_markers = {}
+                buy_signals_dr = signals[(signals['signal'] == 'BUY') & (signals['pattern'] == 'Double Repo')]
+                buy_signals_sp = signals[(signals['signal'] == 'BUY') & (signals['pattern'] == 'Single Penetration')]
+                buy_signals_rrt = signals[(signals['signal'] == 'BUY') & (signals['pattern'] == 'Railroad Tracks')]
+                buy_signals_ftp = signals[(signals['signal'] == 'BUY') & (signals['pattern'] == 'Failure to Penetrate')]
                 
-                with c3:
-                    st.write("Parameters")
-                    stop_loss = 0.02
-                    atr_multiplier = 2.0
-                    take_profit = 0.05
-                    
-                    if sl_mode == "Fixed Percentage":
-                        stop_loss = st.number_input("Stop Loss (%)", 0.1, 20.0, 2.0, 0.1) / 100
-                    elif sl_mode == "ATR Based":
-                        atr_multiplier = st.number_input("ATR Multiplier", 1.0, 5.0, 2.0, 0.5)
-                        
-                    if tp_mode == "Fixed Percentage":
-                        take_profit = st.number_input("Take Profit (%)", 0.1, 50.0, 5.0, 0.1) / 100
-                        
-                with c4:
-                    # Risk Management
-                    st.write("Risk Management")
-                    initial_capital = st.number_input("Initial Capital", value=100000.0, step=1000.0)
-                    use_dynamic_sizing = st.checkbox("Use Dynamic Position Sizing", value=True)
-                    risk_per_trade = 0.01
-                    if use_dynamic_sizing:
-                        risk_per_trade = st.number_input("Risk per Trade (%)", 0.1, 5.0, 2.0, 0.1) / 100
-
-            # --- Backtest Execution ---
-            
-            # Detect New Patterns
-            signals_rrt = recognizer.detect_railroad_tracks()
-            signals_ftp = recognizer.detect_failure_to_penetrate()
-
-            # Apply Filters
-            if enable_trend_filter:
-                signals_dr = recognizer.apply_trend_filter(signals_dr, sma_200)
-                signals_sp = recognizer.apply_trend_filter(signals_sp, sma_200)
-                signals_rrt = recognizer.apply_trend_filter(signals_rrt, sma_200)
-                signals_ftp = recognizer.apply_trend_filter(signals_ftp, sma_200)
-
-            if enable_mtf_filter:
-                weekly_df = DataFeed.resample_to_weekly(df)
-                signals_dr = recognizer.apply_mtf_filter(signals_dr, weekly_df)
-                signals_sp = recognizer.apply_mtf_filter(signals_sp, weekly_df)
-                signals_rrt = recognizer.apply_mtf_filter(signals_rrt, weekly_df)
-                signals_ftp = recognizer.apply_mtf_filter(signals_ftp, weekly_df)
-            
-            # Merge Signals
-            signals = pd.DataFrame(index=df.index, columns=['signal', 'pattern', 'pattern_sl', 'pattern_tp', 'metadata'])
-            
-            # Helper to merge signals
-            def merge_signals(target_df, source_df, strategy_name):
-                if strategy_name in selected_strategies:
-                    mask = source_df['signal'].notna()
-                    # Only fill where target is empty to avoid overwriting (priority: DR > SP > RRT > FTP)
-                    mask_fill = (target_df['signal'].isna()) & mask
-                    target_df.loc[mask_fill] = source_df.loc[mask_fill]
-
-            merge_signals(signals, signals_dr, "Double Repo")
-            merge_signals(signals, signals_sp, "Single Penetration")
-            merge_signals(signals, signals_rrt, "Railroad Tracks")
-            merge_signals(signals, signals_ftp, "Failure to Penetrate")
-
-            # ML Prediction Filter
-            buy_signals = signals[signals['signal'] == 'BUY']
-            if not buy_signals.empty:
-                clf = SignalClassifier()
-                if clf.is_trained:
-                    probs = []
-                    for idx in buy_signals.index:
-                        if idx in df.index:
-                            probs.append(clf.predict_proba(df, idx))
-                        else:
-                            probs.append(0.5)
-                    
-                    buy_signals = buy_signals.copy()
-                    buy_signals['confidence'] = probs
-                    
-                    # Update main signals df with confidence
-                    signals['confidence'] = np.nan
-                    signals.loc[buy_signals.index, 'confidence'] = buy_signals['confidence']
-                    
-                    # Filter
-                    low_conf_indices = buy_signals[buy_signals['confidence'] < min_confidence].index
-                    signals.loc[low_conf_indices, 'signal'] = np.nan
-                    signals.loc[low_conf_indices, 'pattern'] = np.nan
-                    
-                    buy_signals = buy_signals[buy_signals['confidence'] >= min_confidence]
-                else:
-                    buy_signals = buy_signals.copy()
-                    buy_signals['confidence'] = 0.5
-
-            # Calculate Metrics
-            metrics = None
-            equity_curve = None
-            drawdown_curve = None
-            
-            if not buy_signals.empty:
-                perf_analyzer = PerformanceAnalyzer(df, signals)
-                metrics = perf_analyzer.calculate_metrics(
-                    holding_period=holding_period, 
-                    sl_mode='Pattern' if sl_mode == 'Pattern Based' else ('ATR' if sl_mode == 'ATR Based' else 'Fixed'),
-                    tp_mode='Pattern' if tp_mode == 'Pattern Based (Fib)' else 'Fixed',
-                    stop_loss_pct=stop_loss, 
-                    take_profit_pct=take_profit,
-                    initial_capital=initial_capital,
-                    use_dynamic_sizing=use_dynamic_sizing,
-                    risk_per_trade_pct=risk_per_trade,
-                    atr_multiplier=atr_multiplier
-                )
-                equity_curve = metrics['Equity Curve']
-                drawdown_curve = metrics['Drawdown Curve']
-
-            # Visualization
-            indicators = {}
-            if enable_trend_filter:
-                indicators['SMA 200'] = sma_200
-            
-            # Prepare signal markers for visualization
-            signal_markers = {}
-            buy_signals_dr = signals[(signals['signal'] == 'BUY') & (signals['pattern'] == 'Double Repo')]
-            buy_signals_sp = signals[(signals['signal'] == 'BUY') & (signals['pattern'] == 'Single Penetration')]
-            buy_signals_rrt = signals[(signals['signal'] == 'BUY') & (signals['pattern'] == 'Railroad Tracks')]
-            buy_signals_ftp = signals[(signals['signal'] == 'BUY') & (signals['pattern'] == 'Failure to Penetrate')]
-            
-            if not buy_signals_dr.empty:
-                signal_markers['Double Repo'] = buy_signals_dr
-            if not buy_signals_sp.empty:
-                signal_markers['Single Penetration'] = buy_signals_sp
-            if not buy_signals_rrt.empty:
-                signal_markers['Railroad Tracks'] = buy_signals_rrt
-            if not buy_signals_ftp.empty:
-                signal_markers['Failure to Penetrate'] = buy_signals_ftp
+                if not buy_signals_dr.empty:
+                    signal_markers['Double Repo'] = buy_signals_dr
+                if not buy_signals_sp.empty:
+                    signal_markers['Single Penetration'] = buy_signals_sp
+                if not buy_signals_rrt.empty:
+                    signal_markers['Railroad Tracks'] = buy_signals_rrt
+                if not buy_signals_ftp.empty:
+                    signal_markers['Failure to Penetrate'] = buy_signals_ftp
             
             fig = Visualizer.plot_chart(df, indicators, 
                                        equity=equity_curve, 
@@ -343,10 +374,285 @@ if analysis_mode == "Single Asset":
                             st.json(meta_copy)
                             
                     show_trade_details(trade_row, df)
+                
+                # --- Save/Load Results Section ---
+                st.markdown("---")
+                with st.expander("💾 Save/Load Results", expanded=False):
+                    save_col, load_col = st.columns(2)
+                    
+                    with save_col:
+                        st.subheader("Save Current Results")
+                        result_description = st.text_input(
+                            "Description",
+                            placeholder="e.g., Holding Period 10, SL 2%, TP 5%",
+                            key="save_description"
+                        )
+                        
+                        if st.button("💾 Save Results", use_container_width=True):
+                            try:
+                                # Prepare parameters dictionary
+                                parameters = {
+                                    'selected_strategies': selected_strategies,
+                                    'enable_trend_filter': enable_trend_filter,
+                                    'enable_mtf_filter': enable_mtf_filter,
+                                    'min_confidence': min_confidence,
+                                    'sl_mode': sl_mode,
+                                    'tp_mode': tp_mode,
+                                    'holding_period': holding_period,
+                                    'stop_loss': stop_loss,
+                                    'atr_multiplier': atr_multiplier,
+                                    'take_profit': take_profit,
+                                    'initial_capital': initial_capital,
+                                    'use_dynamic_sizing': use_dynamic_sizing,
+                                    'risk_per_trade': risk_per_trade
+                                }
+                                
+                                # Save results
+                                results_manager = BacktestResultsManager()
+                                filename = results_manager.save_result(
+                                    symbol=symbol,
+                                    start_date=str(start_date),
+                                    end_date=str(end_date),
+                                    parameters=parameters,
+                                    metrics=metrics,
+                                    description=result_description
+                                )
+                                
+                                st.success(f"✅ Results saved successfully!\n\nFilename: `{filename}`")
+                            except Exception as e:
+                                st.error(f"Error saving results: {e}")
+                    
+                    with load_col:
+                        st.subheader("Load Saved Results")
+                        
+                        # List available results for current symbol
+                        results_manager = BacktestResultsManager()
+                        available_results = results_manager.list_results(
+                            symbol=symbol,
+                            start_date=str(start_date),
+                            end_date=str(end_date)
+                        )
+                        
+                        if available_results:
+                            # Create display options
+                            result_options = {}
+                            for result in available_results:
+                                meta = result['metadata']
+                                metrics_sum = result['metrics_summary']
+                                desc = meta.get('description', 'No description')
+                                timestamp = meta['timestamp']
+                                display_name = f"{desc} ({timestamp}) - Return: {metrics_sum['Total Return']:.2%}"
+                                result_options[display_name] = result['filename']
+                            
+                            selected_result = st.selectbox(
+                                "Select a saved result",
+                                options=list(result_options.keys()),
+                                key="load_select"
+                            )
+                            
+                            col1, col2 = st.columns(2)
+                            with col1:
+                                if st.button("📂 Load Results", use_container_width=True):
+                                    try:
+                                        filename = result_options[selected_result]
+                                        loaded_data = results_manager.load_result(filename)
+                                        
+                                        # Store in session state
+                                        st.session_state['loaded_backtest'] = loaded_data
+                                        st.success("✅ Results loaded successfully!")
+                                        st.rerun()
+                                    except Exception as e:
+                                        st.error(f"Error loading results: {e}")
+                            
+                            with col2:
+                                if st.button("🗑️ Delete", use_container_width=True):
+                                    filename = result_options[selected_result]
+                                    if results_manager.delete_result(filename):
+                                        st.success("✅ Result deleted successfully!")
+                                        st.rerun()
+                                    else:
+                                        st.error("Error deleting result")
+                        else:
+                            st.info("No saved results found for this symbol and date range.")
             else:
                 st.info("No trades executed.")
 
-        # --- Tab 2: Robustness ---
+        # --- Tab 2: Results Comparison ---
+        with tab_comparison:
+            st.header("Results Comparison 📊")
+            st.write("Compare multiple backtest results side-by-side to analyze the impact of different parameters.")
+            
+            # Initialize BacktestResultsManager
+            results_manager = BacktestResultsManager()
+            
+            # Filters
+            with st.expander("🔍 Filter Options", expanded=True):
+                filter_col1, filter_col2 = st.columns(2)
+                with filter_col1:
+                    filter_symbol = st.text_input("Filter by Symbol", value=symbol, key="comp_symbol")
+                with filter_col2:
+                    use_date_filter = st.checkbox("Filter by Date Range", value=True)
+                    if use_date_filter:
+                        filter_start = str(start_date)
+                        filter_end = str(end_date)
+                    else:
+                        filter_start = None
+                        filter_end = None
+            
+            # List available results
+            available_results = results_manager.list_results(
+                symbol=filter_symbol if filter_symbol else None,
+                start_date=filter_start,
+                end_date=filter_end
+            )
+            
+            if available_results:
+                st.write(f"Found **{len(available_results)}** saved results matching filters.")
+                
+                # Create selection options
+                result_options = {}
+                for result in available_results:
+                    meta = result['metadata']
+                    metrics_sum = result['metrics_summary']
+                    desc = meta.get('description', 'No description')
+                    timestamp = meta['timestamp']
+                    display_name = f"{desc} | {meta['symbol']} ({meta['start_date']} to {meta['end_date']}) | {timestamp} | Return: {metrics_sum['Total Return']:.2%}"
+                    result_options[display_name] = result['filename']
+                
+                # Multi-select for comparison (max 5)
+                selected_results = st.multiselect(
+                    "Select results to compare (max 5)",
+                    options=list(result_options.keys()),
+                    max_selections=5,
+                    key="comparison_select"
+                )
+                
+                if len(selected_results) >= 2:
+                    if st.button("🔄 Compare Selected Results", use_container_width=True, type="primary"):
+                        # Get filenames
+                        selected_filenames = [result_options[name] for name in selected_results]
+                        
+                        # Prepare comparison data
+                        comparison_data = results_manager.prepare_comparison_data(selected_filenames)
+                        
+                        if comparison_data and comparison_data['results']:
+                            st.success(f"✅ Comparing {len(comparison_data['results'])} results")
+                            
+                            # --- Metrics Comparison Table ---
+                            st.markdown("---")
+                            st.subheader("📈 Metrics Comparison")
+                            
+                            metrics_df = pd.DataFrame(comparison_data['metrics_comparison'])
+                            
+                            # Format the dataframe
+                            def format_metric_value(row):
+                                metric = row['Metric']
+                                formatted_row = {'Metric': metric}
+                                
+                                for col in row.index:
+                                    if col == 'Metric':
+                                        continue
+                                    
+                                    value = row[col]
+                                    if metric in ['Win Rate', 'Avg Return', 'Total Return', 'Annualized Return', 'Max Drawdown']:
+                                        formatted_row[col] = f"{value:.2%}"
+                                    elif metric in ['Sharpe Ratio', 'Sortino Ratio', 'Profit Factor']:
+                                        formatted_row[col] = f"{value:.2f}"
+                                    else:
+                                        formatted_row[col] = str(int(value)) if isinstance(value, (int, float)) else str(value)
+                                
+                                return pd.Series(formatted_row)
+                            
+                            formatted_metrics_df = metrics_df.apply(format_metric_value, axis=1)
+                            st.dataframe(formatted_metrics_df, use_container_width=True, hide_index=True)
+                            
+                            # --- Equity Curves Overlay ---
+                            st.markdown("---")
+                            st.subheader("💰 Equity Curves Comparison")
+                            
+                            if comparison_data['equity_curves']:
+                                # Prepare data for visualization
+                                # We'll create a chart with multiple equity curves
+                                equity_data = comparison_data['equity_curves']
+                                
+                                # Get all unique dates
+                                all_dates = set()
+                                for curve in equity_data.values():
+                                    all_dates.update(curve.index)
+                                all_dates = sorted(list(all_dates))
+                                
+                                # Build series for each result
+                                series_list = []
+                                colors = ['#5470c6', '#91cc75', '#fac858', '#ee6666', '#73c0de']
+                                
+                                for i, (label, curve) in enumerate(equity_data.items()):
+                                    # Align to common dates
+                                    aligned_curve = curve.reindex(all_dates, method='ffill')
+                                    
+                                    series_list.append({
+                                        'name': label,
+                                        'type': 'line',
+                                        'data': aligned_curve.tolist(),
+                                        'smooth': True,
+                                        'lineStyle': {'width': 2},
+                                        'itemStyle': {'color': colors[i % len(colors)]}
+                                    })
+                                
+                                # Create ECharts option
+                                option = {
+                                    'title': {'text': 'Equity Curves Comparison', 'left': 'center'},
+                                    'tooltip': {
+                                        'trigger': 'axis',
+                                        'axisPointer': {'type': 'cross'}
+                                    },
+                                    'legend': {
+                                        'data': list(equity_data.keys()),
+                                        'top': '30px',
+                                        'type': 'scroll'
+                                    },
+                                    'grid': {
+                                        'left': '3%',
+                                        'right': '4%',
+                                        'bottom': '3%',
+                                        'top': '80px',
+                                        'containLabel': True
+                                    },
+                                    'xAxis': {
+                                        'type': 'category',
+                                        'data': [d.strftime('%Y-%m-%d') for d in all_dates],
+                                        'boundaryGap': False
+                                    },
+                                    'yAxis': {
+                                        'type': 'value',
+                                        'name': 'Portfolio Value',
+                                        'axisLabel': {'formatter': '{value}'}
+                                    },
+                                    'series': series_list
+                                }
+                                
+                                st_echarts(options=option, height="500px")
+                            else:
+                                st.info("No equity curve data available for comparison.")
+                            
+                            # --- Parameter Differences ---
+                            st.markdown("---")
+                            st.subheader("⚙️ Parameter Differences")
+                            
+                            if comparison_data['parameter_differences']:
+                                params_df = pd.DataFrame(comparison_data['parameter_differences'])
+                                st.dataframe(params_df, use_container_width=True, hide_index=True)
+                            else:
+                                st.info("All selected results use identical parameters.")
+                        else:
+                            st.error("Failed to load comparison data.")
+                elif len(selected_results) == 1:
+                    st.info("Please select at least 2 results to compare.")
+                else:
+                    st.info("Select results from the list above to compare them.")
+            else:
+                st.info("No saved results found. Run a backtest and save the results to enable comparison.")
+
+        # --- Tab 3: Robustness ---
         with tab_robustness:
             st.header("Walk-Forward Analysis 🔬")
             st.write("Test strategy robustness by optimizing on past data and testing on future data.")
