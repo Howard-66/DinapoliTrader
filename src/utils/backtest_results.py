@@ -63,26 +63,45 @@ class BacktestResultsManager:
             JSON-serializable representation
         """
         if isinstance(obj, pd.Series):
+            # Convert to list and replace NaNs with None
+            data = obj.tolist()
+            data = [None if pd.isna(x) else x for x in data]
             return {
                 '_type': 'Series',
-                'data': obj.tolist(),
+                'data': data,
                 'index': obj.index.strftime('%Y-%m-%d').tolist() if isinstance(obj.index, pd.DatetimeIndex) else obj.index.tolist()
             }
         elif isinstance(obj, pd.DataFrame):
+            data_dict = obj.to_dict(orient='split')
+            # Sanitize data list of lists
+            if 'data' in data_dict:
+                data_dict['data'] = [
+                    [None if pd.isna(x) else x for x in row]
+                    for row in data_dict['data']
+                ]
             return {
                 '_type': 'DataFrame',
-                'data': obj.to_dict(orient='split'),
+                'data': data_dict,
                 'index_is_datetime': isinstance(obj.index, pd.DatetimeIndex),
                 'columns_info': {col: str(obj[col].dtype) for col in obj.columns}
             }
         elif isinstance(obj, (np.integer, np.floating)):
             return float(obj)
+        elif isinstance(obj, np.bool_):
+            return bool(obj)
         elif isinstance(obj, np.ndarray):
             return obj.tolist()
         elif isinstance(obj, pd.Timestamp):
             return obj.strftime('%Y-%m-%d %H:%M:%S')
+        elif isinstance(obj, (list, tuple)):
+            return [self._serialize_pandas_object(x) for x in obj]
+        elif isinstance(obj, dict):
+            return {k: self._serialize_pandas_object(v) for k, v in obj.items()}
         elif pd.isna(obj):
             return None
+        elif isinstance(obj, np.generic):
+            # Fallback for other numpy types
+            return obj.item()
         else:
             return obj
     
@@ -141,7 +160,7 @@ class BacktestResultsManager:
                 'timestamp': timestamp,
                 'description': description
             },
-            'parameters': parameters,
+            'parameters': self._serialize_pandas_object(parameters),  # Serialize parameters too
             'metrics': {}
         }
         
@@ -154,17 +173,47 @@ class BacktestResultsManager:
                     if pd.api.types.is_datetime64_any_dtype(trade_log_copy[col]):
                         trade_log_copy[col] = trade_log_copy[col].dt.strftime('%Y-%m-%d')
                     elif col == 'Metadata':
-                        # Handle Metadata column - convert any Timestamp objects in dictionaries
+                        # Handle Metadata column - convert any Timestamp AND numpy types in dictionaries
                         trade_log_copy[col] = trade_log_copy[col].apply(
-                            lambda x: self._clean_metadata(x) if isinstance(x, dict) else x
+                            lambda x: self._serialize_pandas_object(x) if isinstance(x, dict) else x
                         )
                 result_data['metrics'][key] = self._serialize_pandas_object(trade_log_copy)
             else:
                 result_data['metrics'][key] = self._serialize_pandas_object(value)
         
-        # Save to file
-        with open(filepath, 'w', encoding='utf-8') as f:
-            json.dump(result_data, f, indent=2, ensure_ascii=False)
+        # Save to file (Atomic Write)
+        temp_filepath = filepath + '.tmp'
+        try:
+            with open(temp_filepath, 'w', encoding='utf-8') as f:
+                try:
+                    json.dump(result_data, f, indent=2, ensure_ascii=False)
+                except TypeError as e:
+                    # Enhanced error reporting
+                    import traceback
+                    print(f"\n{'='*60}")
+                    print("JSON Serialization Error - Debugging Information:")
+                    print(f"{'='*60}")
+                    print(f"Error: {e}")
+                    print(f"\nParameters type: {type(result_data['parameters'])}")
+                    print(f"Parameters content:")
+                    for k, v in result_data['parameters'].items():
+                        print(f"  {k}: {v} (type: {type(v).__module__}.{type(v).__name__})")
+                    print(f"\nMetrics keys: {list(result_data['metrics'].keys())}")
+                    print(f"{'='*60}\n")
+                    traceback.print_exc()
+                    raise
+                f.flush()
+                os.fsync(f.fileno())
+            
+            # Rename temp file to actual file
+            if os.path.exists(filepath):
+                os.remove(filepath)
+            os.rename(temp_filepath, filepath)
+            
+        except Exception as e:
+            if os.path.exists(temp_filepath):
+                os.remove(temp_filepath)
+            raise e
         
         return filename
     

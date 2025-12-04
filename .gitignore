@@ -66,5 +66,6 @@ output/
 .env.local
 .env.*.local
 src/ml/*.joblib
-src/ml/signal_classifier_metadata.json
 backtest_results/*.json
+src/ml/signal_classifier_metadata.json
+src/ml/signal_classifier.joblib

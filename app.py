@@ -78,15 +78,12 @@ if analysis_mode == "Single Asset":
         dma_25x5 = Indicators.displaced_ma(df['close'], 25, 5)
         sma_200 = Indicators.sma(df['close'], 200)
         
-        # Detect Patterns
+        # Initialize Recognizer
         recognizer = PatternRecognizer(df)
-        signals_dr = recognizer.detect_double_repo()
-        signals_sp = recognizer.detect_single_penetration()
         
         # --- Main Area Tabs ---
         tab_backtest, tab_comparison, tab_robustness, tab_ml = st.tabs(["Strategy Backtest", "Results Comparison", "Walk-Forward Analysis", "Machine Learning Lab"])
-        
-        # --- Tab 1: Backtest ---
+
         # --- Tab 1: Backtest ---
         with tab_backtest:
             # Check if there's loaded backtest data
@@ -120,8 +117,8 @@ if analysis_mode == "Single Asset":
                         st.write("Active Strategies")
                         selected_strategies = st.pills(
                             "Active Strategies",
-                            ["Double Repo", "Single Penetration", "Railroad Tracks", "Failure to Penetrate"],
-                            default=["Double Repo", "Single Penetration", "Railroad Tracks", "Failure to Penetrate"],
+                            ["Double Repo", "Single Penetration"],
+                            default=["Double Repo", "Single Penetration"],
                             selection_mode="multi",
                             label_visibility="collapsed"
                         )
@@ -129,6 +126,8 @@ if analysis_mode == "Single Asset":
                         st.write("Filters")
                         enable_trend_filter = st.checkbox("Enable Trend Filter (SMA 200)", value=False)
                         enable_mtf_filter = st.checkbox("Enable MTF Filter (Weekly Trend)", value=False, help="Filter signals based on Weekly 25x5 DMA Trend.")
+                        require_rrt = st.checkbox("Require RRT Confirmation", value=False, help="Only take signals with Railroad Tracks confirmation.")
+                        require_ftp = st.checkbox("Require FTP Confirmation", value=False, help="Only take signals with Failure to Penetrate confirmation.")
                         min_confidence = st.slider("Min Confidence", 0.0, 1.0, 0.5, 0.05)
                     
                     with c2:
@@ -142,6 +141,11 @@ if analysis_mode == "Single Asset":
                         stop_loss = 0.02
                         atr_multiplier = 2.0
                         take_profit = 0.05
+                        
+                        st.write("Double Repo Settings")
+                        min_dma25_dist_pct = st.slider("Min Dist from 25x5 DMA (%)", 0.0, 5.0, 0.5, 0.1, help="Minimum percentage distance price must be from 25x5 DMA to trigger Double Repo.") / 100
+                        min_trend_bars = st.slider("Min Trend Bars", 0, 10, 3, 1, help="Minimum bars price must be below/above 3x3 DMA before the pattern starts.")
+                        fib_target = st.selectbox("Fib Target", ["COP", "OP", "XOP"], index=1, help="Fibonacci Expansion Target for Take Profit: COP=0.618, OP=1.0, XOP=1.618")
                         
                         if sl_mode == "Fixed Percentage":
                             stop_loss = st.number_input("Stop Loss (%)", 0.1, 20.0, 2.0, 0.1) / 100
@@ -163,22 +167,39 @@ if analysis_mode == "Single Asset":
                 # --- Backtest Execution ---
                 
                 # Detect New Patterns
-                signals_rrt = recognizer.detect_railroad_tracks()
-                signals_ftp = recognizer.detect_failure_to_penetrate()
+                # RRT and FTP are now filters included in DR/SP metadata
+                signals_dr = recognizer.detect_double_repo(min_dma25_dist_pct=min_dma25_dist_pct, min_trend_bars=min_trend_bars, fib_target=fib_target)
+                signals_sp = recognizer.detect_single_penetration()
+
 
                 # Apply Filters
                 if enable_trend_filter:
                     signals_dr = recognizer.apply_trend_filter(signals_dr, sma_200)
                     signals_sp = recognizer.apply_trend_filter(signals_sp, sma_200)
-                    signals_rrt = recognizer.apply_trend_filter(signals_rrt, sma_200)
-                    signals_ftp = recognizer.apply_trend_filter(signals_ftp, sma_200)
 
                 if enable_mtf_filter:
                     weekly_df = DataFeed.resample_to_weekly(df)
                     signals_dr = recognizer.apply_mtf_filter(signals_dr, weekly_df)
                     signals_sp = recognizer.apply_mtf_filter(signals_sp, weekly_df)
-                    signals_rrt = recognizer.apply_mtf_filter(signals_rrt, weekly_df)
-                    signals_ftp = recognizer.apply_mtf_filter(signals_ftp, weekly_df)
+
+                # Apply RRT/FTP Requirement Filters
+                if require_rrt:
+                    # Filter DR
+                    mask_dr = signals_dr['metadata'].apply(lambda x: x.get('rrt_detected', False) if isinstance(x, dict) else False)
+                    signals_dr.loc[~mask_dr, 'signal'] = np.nan
+                    
+                    # Filter SP
+                    mask_sp = signals_sp['metadata'].apply(lambda x: x.get('rrt_detected', False) if isinstance(x, dict) else False)
+                    signals_sp.loc[~mask_sp, 'signal'] = np.nan
+
+                if require_ftp:
+                    # Filter DR
+                    mask_dr = signals_dr['metadata'].apply(lambda x: x.get('ftp_detected', False) if isinstance(x, dict) else False)
+                    signals_dr.loc[~mask_dr, 'signal'] = np.nan
+                    
+                    # Filter SP
+                    mask_sp = signals_sp['metadata'].apply(lambda x: x.get('ftp_detected', False) if isinstance(x, dict) else False)
+                    signals_sp.loc[~mask_sp, 'signal'] = np.nan
                 
                 # Merge Signals
                 signals = pd.DataFrame(index=df.index, columns=['signal', 'pattern', 'pattern_sl', 'pattern_tp', 'metadata'])
@@ -193,8 +214,6 @@ if analysis_mode == "Single Asset":
 
                 merge_signals(signals, signals_dr, "Double Repo")
                 merge_signals(signals, signals_sp, "Single Penetration")
-                merge_signals(signals, signals_rrt, "Railroad Tracks")
-                merge_signals(signals, signals_ftp, "Failure to Penetrate")
 
                 # ML Prediction Filter
                 buy_signals = signals[signals['signal'] == 'BUY']
@@ -265,17 +284,11 @@ if analysis_mode == "Single Asset":
                 signal_markers = {}
                 buy_signals_dr = signals[(signals['signal'] == 'BUY') & (signals['pattern'] == 'Double Repo')]
                 buy_signals_sp = signals[(signals['signal'] == 'BUY') & (signals['pattern'] == 'Single Penetration')]
-                buy_signals_rrt = signals[(signals['signal'] == 'BUY') & (signals['pattern'] == 'Railroad Tracks')]
-                buy_signals_ftp = signals[(signals['signal'] == 'BUY') & (signals['pattern'] == 'Failure to Penetrate')]
                 
                 if not buy_signals_dr.empty:
                     signal_markers['Double Repo'] = buy_signals_dr
                 if not buy_signals_sp.empty:
                     signal_markers['Single Penetration'] = buy_signals_sp
-                if not buy_signals_rrt.empty:
-                    signal_markers['Railroad Tracks'] = buy_signals_rrt
-                if not buy_signals_ftp.empty:
-                    signal_markers['Failure to Penetrate'] = buy_signals_ftp
             
             fig = Visualizer.plot_chart(df, indicators, 
                                        equity=equity_curve, 
@@ -404,7 +417,9 @@ if analysis_mode == "Single Asset":
                                     'take_profit': take_profit,
                                     'initial_capital': initial_capital,
                                     'use_dynamic_sizing': use_dynamic_sizing,
-                                    'risk_per_trade': risk_per_trade
+                                    'risk_per_trade': risk_per_trade,
+                                    'require_rrt': require_rrt,
+                                    'require_ftp': require_ftp
                                 }
                                 
                                 # Save results

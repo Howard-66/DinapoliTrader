@@ -1,11 +1,11 @@
 {
-  "training_timestamp": "2025-11-30T20:33:53.043535",
+  "training_timestamp": "2025-12-04T12:25:29.291086",
   "symbol": "601398.SH",
   "start_date": "2011-01-01",
   "end_date": "2020-12-31",
-  "total_samples": 127,
-  "training_samples": 101,
-  "test_samples": 26,
+  "total_samples": 154,
+  "training_samples": 123,
+  "test_samples": 31,
   "training_parameters": {
     "holding_period": 5,
     "stop_loss_pct": 0.02,
@@ -17,10 +17,10 @@
     "random_state": 42
   },
   "performance_metrics": {
-    "accuracy": 0.5769230769230769,
-    "precision": 0.6666666666666666
+    "accuracy": 0.45161290322580644,
+    "precision": 0.45454545454545453
   },
   "feature_count": 6,
-  "positive_samples": 55,
-  "negative_samples": 72
+  "positive_samples": 66,
+  "negative_samples": 88
 }

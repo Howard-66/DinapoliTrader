@@ -16,7 +16,7 @@ class PatternRecognizer:
         self.dma_7x5 = Indicators.displaced_ma(df['close'], 7, 5)
         self.dma_25x5 = Indicators.displaced_ma(df['close'], 25, 5)
 
-    def detect_double_repo(self, lookback: int = 20) -> pd.DataFrame:
+    def detect_double_repo(self, lookback: int = 20, min_dma25_dist_pct: float = 0.005, min_trend_bars: int = 3, fib_target: str = 'OP') -> pd.DataFrame:
         """
         检测Double Repo模式。
         
@@ -35,6 +35,10 @@ class PatternRecognizer:
         cross = pd.Series(0, index=self.df.index)
         cross[(close > dma3) & (close.shift(1) <= dma3.shift(1))] = 1 # Up Cross
         cross[(close < dma3) & (close.shift(1) >= dma3.shift(1))] = -1 # Down Cross
+        
+        # Pre-calculate filters
+        rrt_filter = self.check_railroad_tracks()
+        ftp_filter = self.check_failure_to_penetrate()
         
         for i in range(lookback, len(self.df)):
             # 检查当前是否是 Up Cross (Buy Signal Trigger)
@@ -55,25 +59,50 @@ class PatternRecognizer:
                             break
                             
                     if prev_up_idx != -1:
-                        # 找到了 Up -> Down -> Up 序列
-                        if close.iloc[i] < self.dma_25x5.iloc[i]:
+                        # Check Initial Trend Condition
+                        # Before prev_up_idx (First Penetration), price should be below 3x3 DMA for min_trend_bars
+                        trend_valid = True
+                        if min_trend_bars > 0:
+                            # Check window [prev_up_idx - min_trend_bars : prev_up_idx]
+                            # Note: prev_up_idx is the index where Close > DMA (Cross Over)
+                            # So we check bars BEFORE it.
+                            start_check = prev_up_idx - min_trend_bars
+                            if start_check >= 0:
+                                # For Buy: Close < DMA
+                                pre_trend = (close.iloc[start_check:prev_up_idx] < dma3.iloc[start_check:prev_up_idx])
+                                if not pre_trend.all():
+                                    trend_valid = False
+                            else:
+                                trend_valid = False # Not enough data
+                        
+                        if trend_valid:
+                            # 找到了 Up -> Down -> Up 序列
+                            # Refined 25x5 Filter: Price should be "far" from 25x5
+                            # Calculate distance percentage
+                            dma25_val = self.dma_25x5.iloc[i]
+                            close_val = close.iloc[i]
+                            
+                            # For Buy: DMA25 should be significantly above Close
+                            dist_pct = (dma25_val - close_val) / close_val
+                            
+                            if dist_pct > min_dma25_dist_pct:
                              # Double Repo Buy
                              # Pattern SL: Lowest Low during the formation (between first Up Cross and current)
                              pattern_low = low.iloc[prev_up_idx:i+1].min()
                              sl_price = pattern_low
                              
-                             # Pattern TP: Fibonacci Expansion (COP = 0.618)
+                             # Pattern TP: Fibonacci Expansion
+                             # COP = 0.618, OP = 1.0, XOP = 1.618
+                             fib_ratios = {'COP': 0.618, 'OP': 1.0, 'XOP': 1.618}
+                             ratio = fib_ratios.get(fib_target, 1.0)
+                             
                              a_price = pattern_low
                              b_price = high.iloc[prev_up_idx:prev_down_idx+1].max()
                              c_price = low.iloc[prev_down_idx:i+1].min()
                              
-                             op_price = c_price + (b_price - a_price) * 1.0
+                             op_price = c_price + (b_price - a_price) * ratio
                              
                              # Find indices for visualization
-                             # We need the actual dates or integer indices relative to the dataframe
-                             # Let's store the index labels (timestamps)
-                             
-                             # Find the exact bar where B and C occurred
                              # B: Max high in range [prev_up_idx, prev_down_idx]
                              b_range = high.iloc[prev_up_idx:prev_down_idx+1]
                              b_idx = b_range.idxmax()
@@ -83,7 +112,6 @@ class PatternRecognizer:
                              c_idx = c_range.idxmin()
                              
                              # A: Min low around prev_up_idx (start of pattern)
-                             # Usually A is the low before the first thrust.
                              a_range = low.iloc[max(0, prev_up_idx-5):prev_up_idx+1]
                              a_idx = a_range.idxmin()
                              
@@ -91,7 +119,9 @@ class PatternRecognizer:
                                  'A': {'date': a_idx, 'price': a_price},
                                  'B': {'date': b_idx, 'price': b_price},
                                  'C': {'date': c_idx, 'price': c_price},
-                                 'entry': {'date': self.df.index[i], 'price': close.iloc[i]}
+                                 'entry': {'date': self.df.index[i], 'price': close.iloc[i]},
+                                 'rrt_detected': rrt_filter.iloc[i],
+                                 'ftp_detected': ftp_filter.iloc[i]
                              }
                              
                              signals.iloc[i] = ['BUY', 'Double Repo', sl_price, op_price, metadata]
@@ -169,6 +199,10 @@ class PatternRecognizer:
     def detect_single_penetration(self, thrust_bars: int = 8) -> pd.DataFrame:
         """
         检测 Single Penetration (Bread & Butter) 模式。
+        Refined Logic:
+        1. Thrust: Close > 3x3 DMA for N bars.
+        2. Penetration: Price touches 3x3 DMA (Low <= DMA).
+        3. Entry: Limit order at 3x3 DMA.
         
         Returns:
             pd.DataFrame: 包含信号的 DataFrame。
@@ -180,6 +214,10 @@ class PatternRecognizer:
         low = self.df['low']
         high = self.df['high']
         dma3 = self.dma_3x3
+        
+        # Pre-calculate filters
+        rrt_filter = self.check_railroad_tracks()
+        ftp_filter = self.check_failure_to_penetrate()
         
         current_bull_run = 0
         current_bear_run = 0
@@ -198,25 +236,29 @@ class PatternRecognizer:
                 
             # Check for Penetration after sufficient thrust
             if current_bull_run >= thrust_bars:
-                if low.iloc[i] <= dma3.iloc[i] and close.iloc[i] > dma3.iloc[i]: 
-                    if low.iloc[i] <= dma3.iloc[i]:
-                         # BUY Signal
-                         # Pattern SL: Low of the thrust start (or recent swing low)
-                         # Simplified: Min Low during the thrust
-                         sl_price = low.iloc[thrust_start_idx:i].min()
-                         
-                         # Pattern TP: Thrust High
-                         thrust_high = high.iloc[thrust_start_idx:i].max()
-                         tp_price = thrust_high
-                         
-                         metadata = {
-                             'thrust_start': {'date': self.df.index[thrust_start_idx], 'price': low.iloc[thrust_start_idx]},
-                             'thrust_end': {'date': self.df.index[i-1], 'price': high.iloc[i-1]},
-                             'penetration': {'date': self.df.index[i], 'price': low.iloc[i]}
-                         }
-                         
-                         signals.iloc[i] = ['BUY', 'Single Penetration', sl_price, tp_price, metadata]
-                         current_bull_run = 0 
+                # Touch Entry: Low <= DMA
+                if low.iloc[i] <= dma3.iloc[i]:
+                     # BUY Signal
+                     entry_price = dma3.iloc[i]
+                     
+                     # Pattern SL: Low of the thrust start (or recent swing low)
+                     # Simplified: Min Low during the thrust
+                     sl_price = low.iloc[thrust_start_idx:i].min()
+                     
+                     # Pattern TP: Thrust High
+                     thrust_high = high.iloc[thrust_start_idx:i].max()
+                     tp_price = thrust_high
+                     
+                     metadata = {
+                         'thrust_start': {'date': self.df.index[thrust_start_idx], 'price': low.iloc[thrust_start_idx]},
+                         'thrust_end': {'date': self.df.index[i-1], 'price': high.iloc[i-1]},
+                         'penetration': {'date': self.df.index[i], 'price': low.iloc[i]},
+                         'rrt_detected': rrt_filter.iloc[i],
+                         'ftp_detected': ftp_filter.iloc[i]
+                     }
+                     
+                     signals.iloc[i] = ['BUY', 'Single Penetration', sl_price, tp_price, metadata]
+                     current_bull_run = 0 # Reset after signal
 
             # Bearish Logic
             if close.iloc[i-1] < dma3.iloc[i-1]:
@@ -227,8 +269,11 @@ class PatternRecognizer:
                 current_bear_run = 0
                 
             if current_bear_run >= thrust_bars:
+                # Touch Entry: High >= DMA
                 if high.iloc[i] >= dma3.iloc[i]:
                     # SELL Signal
+                    entry_price = dma3.iloc[i]
+                    
                     sl_price = high.iloc[thrust_start_idx:i].max()
                     thrust_low = low.iloc[thrust_start_idx:i].min()
                     tp_price = thrust_low
@@ -236,7 +281,9 @@ class PatternRecognizer:
                     metadata = {
                          'thrust_start': {'date': self.df.index[thrust_start_idx], 'price': high.iloc[thrust_start_idx]},
                          'thrust_end': {'date': self.df.index[i-1], 'price': low.iloc[i-1]},
-                         'penetration': {'date': self.df.index[i], 'price': high.iloc[i]}
+                         'penetration': {'date': self.df.index[i], 'price': high.iloc[i]},
+                         'rrt_detected': rrt_filter.iloc[i],
+                         'ftp_detected': ftp_filter.iloc[i]
                     }
                     
                     signals.iloc[i] = ['SELL', 'Single Penetration', sl_price, tp_price, metadata]
@@ -244,137 +291,67 @@ class PatternRecognizer:
                     
         return signals
 
-    def detect_railroad_tracks(self, lookback: int = 5) -> pd.DataFrame:
+    def check_railroad_tracks(self) -> pd.Series:
         """
-        检测 Railroad Tracks (RRT) 模式。
-        Logic: Two adjacent candles with opposite directions and similar large bodies.
-        
-        Returns:
-            pd.DataFrame: 包含信号的 DataFrame。
-            Columns: [signal, pattern, pattern_sl, pattern_tp, metadata]
+        Check for Railroad Tracks (RRT) pattern.
+        Returns: Boolean Series (True where RRT is detected).
         """
-        signals = pd.DataFrame(index=self.df.index, columns=['signal', 'pattern', 'pattern_sl', 'pattern_tp', 'metadata'])
-        
         close = self.df['close']
         open_price = self.df['open']
         high = self.df['high']
         low = self.df['low']
         
-        # Calculate body size and range
+        # Calculate body size
         body = (close - open_price).abs()
-        total_range = high - low
         
         # Average body size for relative comparison
         avg_body = body.rolling(window=20).mean()
         
-        for i in range(1, len(self.df)):
-            # Check for sufficient body size (e.g., > 1.5 * avg_body)
-            # This ensures "large bodies"
-            if body.iloc[i] < 1.0 * avg_body.iloc[i] or body.iloc[i-1] < 1.0 * avg_body.iloc[i-1]:
-                continue
-                
-            # Check for opposite directions
-            # Candle 1 (Previous): Bullish, Candle 2 (Current): Bearish -> Bearish RRT
-            is_prev_bull = close.iloc[i-1] > open_price.iloc[i-1]
-            is_curr_bear = close.iloc[i] < open_price.iloc[i]
-            
-            # Candle 1: Bearish, Candle 2: Bullish -> Bullish RRT
-            is_prev_bear = close.iloc[i-1] < open_price.iloc[i-1]
-            is_curr_bull = close.iloc[i] > open_price.iloc[i]
-            
-            # Check for "Similar Length"
-            # Body difference shouldn't be too large (e.g., within 30%)
-            body_ratio = body.iloc[i] / body.iloc[i-1]
-            is_similar_size = 0.7 <= body_ratio <= 1.3
-            
-            if not is_similar_size:
-                continue
-                
-            if is_prev_bull and is_curr_bear:
-                # Bearish RRT (Top Reversal)
-                # Signal: SELL
-                # SL: Max High of the two candles
-                sl_price = max(high.iloc[i], high.iloc[i-1])
-                
-                # TP: Target 1:1 or 1.618 of the pattern height
-                pattern_height = sl_price - min(low.iloc[i], low.iloc[i-1])
-                tp_price = min(low.iloc[i], low.iloc[i-1]) - pattern_height * 1.0
-                
-                metadata = {
-                    'bar1': {'date': self.df.index[i-1], 'open': open_price.iloc[i-1], 'close': close.iloc[i-1]},
-                    'bar2': {'date': self.df.index[i], 'open': open_price.iloc[i], 'close': close.iloc[i]}
-                }
-                
-                signals.iloc[i] = ['SELL', 'Railroad Tracks', sl_price, tp_price, metadata]
-                
-            elif is_prev_bear and is_curr_bull:
-                # Bullish RRT (Bottom Reversal)
-                # Signal: BUY
-                # SL: Min Low of the two candles
-                sl_price = min(low.iloc[i], low.iloc[i-1])
-                
-                # TP
-                pattern_height = max(high.iloc[i], high.iloc[i-1]) - sl_price
-                tp_price = max(high.iloc[i], high.iloc[i-1]) + pattern_height * 1.0
-                
-                metadata = {
-                    'bar1': {'date': self.df.index[i-1], 'open': open_price.iloc[i-1], 'close': close.iloc[i-1]},
-                    'bar2': {'date': self.df.index[i], 'open': open_price.iloc[i], 'close': close.iloc[i]}
-                }
-                
-                signals.iloc[i] = ['BUY', 'Railroad Tracks', sl_price, tp_price, metadata]
-                
-        return signals
-
-    def detect_failure_to_penetrate(self, lookback: int = 5) -> pd.DataFrame:
-        """
-        检测 Failure to Penetrate (FTP) 模式。
-        Logic: Price penetrates DMA 3x3 (High > DMA for Sell, Low < DMA for Buy) 
-               but closes back inside (Close < DMA for Sell, Close > DMA for Buy).
-               
-        Returns:
-            pd.DataFrame: 包含信号的 DataFrame。
-            Columns: [signal, pattern, pattern_sl, pattern_tp, metadata]
-        """
-        signals = pd.DataFrame(index=self.df.index, columns=['signal', 'pattern', 'pattern_sl', 'pattern_tp', 'metadata'])
+        # Initialize result
+        is_rrt = pd.Series(False, index=self.df.index)
         
+        # Vectorized approach is harder for complex conditions, iterating is fine for now
+        # or use shift() for vectorization
+        
+        # Condition 1: Large bodies (> 1.0 * avg)
+        large_body = body > (1.0 * avg_body)
+        prev_large_body = large_body.shift(1)
+        
+        # Condition 2: Opposite directions
+        bullish = close > open_price
+        bearish = close < open_price
+        
+        opp_dir_1 = bullish.shift(1) & bearish # Bull -> Bear (Top)
+        opp_dir_2 = bearish.shift(1) & bullish # Bear -> Bull (Bottom)
+        
+        # Condition 3: Similar size (within 30%)
+        body_ratio = body / body.shift(1)
+        similar_size = (body_ratio >= 0.7) & (body_ratio <= 1.3)
+        
+        # Combine
+        rrt_condition = (large_body & prev_large_body & (opp_dir_1 | opp_dir_2) & similar_size)
+        is_rrt[rrt_condition] = True
+        
+        return is_rrt
+
+    def check_failure_to_penetrate(self) -> pd.Series:
+        """
+        Check for Failure to Penetrate (FTP) pattern.
+        Returns: Boolean Series (True where FTP is detected).
+        """
         close = self.df['close']
         high = self.df['high']
         low = self.df['low']
         dma3 = self.dma_3x3
         
-        for i in range(1, len(self.df)):
-            # Bullish FTP (Support Hold)
-            if low.iloc[i] < dma3.iloc[i] and close.iloc[i] > dma3.iloc[i]:
-                # Potential Bullish FTP
-                if close.iloc[i-1] > dma3.iloc[i-1]: 
-                    # BUY Signal
-                    sl_price = low.iloc[i] # The wick low
-                    
-                    # TP: Recent High or fixed R:R
-                    risk = close.iloc[i] - sl_price
-                    tp_price = close.iloc[i] + risk * 2.0 # 2:1 Reward
-                    
-                    metadata = {
-                        'penetration': {'date': self.df.index[i], 'low': low.iloc[i], 'close': close.iloc[i], 'dma3': dma3.iloc[i]}
-                    }
-                    
-                    signals.iloc[i] = ['BUY', 'Failure to Penetrate', sl_price, tp_price, metadata]
-            
-            # Bearish FTP (Resistance Hold)
-            if high.iloc[i] > dma3.iloc[i] and close.iloc[i] < dma3.iloc[i]:
-                # Potential Bearish FTP
-                if close.iloc[i-1] < dma3.iloc[i-1]:
-                    # SELL Signal
-                    sl_price = high.iloc[i] # The wick high
-                    
-                    risk = sl_price - close.iloc[i]
-                    tp_price = close.iloc[i] - risk * 2.0
-                    
-                    metadata = {
-                        'penetration': {'date': self.df.index[i], 'high': high.iloc[i], 'close': close.iloc[i], 'dma3': dma3.iloc[i]}
-                    }
-                    
-                    signals.iloc[i] = ['SELL', 'Failure to Penetrate', sl_price, tp_price, metadata]
-                    
-        return signals
+        is_ftp = pd.Series(False, index=self.df.index)
+        
+        # Bullish FTP (Support Hold): Low < DMA but Close > DMA, and Prev Close > Prev DMA
+        bull_ftp = (low < dma3) & (close > dma3) & (close.shift(1) > dma3.shift(1))
+        
+        # Bearish FTP (Resistance Hold): High > DMA but Close < DMA, and Prev Close < Prev DMA
+        bear_ftp = (high > dma3) & (close < dma3) & (close.shift(1) < dma3.shift(1))
+        
+        is_ftp[bull_ftp | bear_ftp] = True
+        
+        return is_ftp

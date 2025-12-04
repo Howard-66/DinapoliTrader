@@ -489,6 +489,9 @@ class Visualizer:
         pattern_name = trade_row.get('Pattern', 'Unknown')
         metadata = trade_row.get('Metadata', {})
         
+        entry_price = trade_row['Entry Price']
+        exit_price = trade_row['Exit Price']
+        
         # Ensure dates are timestamps
         if isinstance(entry_date, str):
             entry_date = pd.to_datetime(entry_date)
@@ -687,6 +690,38 @@ class Visualizer:
                     'data': mark_data,
                     'label': {'color': '#000'}
                 }
+                
+                # Visualize RRT/FTP Confirmation
+                if metadata.get('rrt_detected'):
+                    # Add marker at C or Entry
+                    c_date = pd.to_datetime(metadata['C']['date']) if 'C' in metadata else entry_date
+                    if c_date in sub_df.index:
+                        idx = sub_df.index.get_loc(c_date)
+                        price = metadata['C']['price'] if 'C' in metadata else entry_price
+                        option['series'].append({
+                            'name': 'RRT Confirmation',
+                            'type': 'scatter',
+                            'data': [[idx, price]],
+                            'symbol': 'pin',
+                            'symbolSize': 20,
+                            'itemStyle': {'color': '#ff00ff'},
+                            'label': {'show': True, 'formatter': 'RRT', 'position': 'top', 'color': '#fff'}
+                        })
+                
+                if metadata.get('ftp_detected'):
+                    c_date = pd.to_datetime(metadata['C']['date']) if 'C' in metadata else entry_date
+                    if c_date in sub_df.index:
+                        idx = sub_df.index.get_loc(c_date)
+                        price = metadata['C']['price'] if 'C' in metadata else entry_price
+                        option['series'].append({
+                            'name': 'FTP Confirmation',
+                            'type': 'scatter',
+                            'data': [[idx, price]],
+                            'symbol': 'pin',
+                            'symbolSize': 20,
+                            'itemStyle': {'color': '#00ffff'},
+                            'label': {'show': True, 'formatter': 'FTP', 'position': 'bottom', 'color': '#fff'}
+                        })
 
         elif pattern_name == 'Single Penetration' and isinstance(metadata, dict):
             # Visualize Thrust and Penetration
@@ -721,6 +756,39 @@ class Visualizer:
                         'symbol': 'circle',
                         'symbolSize': 8,
                         'itemStyle': {'color': '#ff00ff'}
+                    })
+
+            # Visualize RRT/FTP Confirmation
+            if metadata.get('rrt_detected'):
+                pen = metadata.get('penetration', {})
+                pen_date = pd.to_datetime(pen.get('date', entry_date))
+                if pen_date in sub_df.index:
+                    idx = sub_df.index.get_loc(pen_date)
+                    price = pen.get('price', entry_price)
+                    option['series'].append({
+                        'name': 'RRT Confirmation',
+                        'type': 'scatter',
+                        'data': [[idx, price]],
+                        'symbol': 'pin',
+                        'symbolSize': 20,
+                        'itemStyle': {'color': '#ff00ff'},
+                        'label': {'show': True, 'formatter': 'RRT', 'position': 'top', 'color': '#fff'}
+                    })
+
+            if metadata.get('ftp_detected'):
+                pen = metadata.get('penetration', {})
+                pen_date = pd.to_datetime(pen.get('date', entry_date))
+                if pen_date in sub_df.index:
+                    idx = sub_df.index.get_loc(pen_date)
+                    price = pen.get('price', entry_price)
+                    option['series'].append({
+                        'name': 'FTP Confirmation',
+                        'type': 'scatter',
+                        'data': [[idx, price]],
+                        'symbol': 'pin',
+                        'symbolSize': 20,
+                        'itemStyle': {'color': '#00ffff'},
+                        'label': {'show': True, 'formatter': 'FTP', 'position': 'bottom', 'color': '#fff'}
                     })
 
         elif pattern_name == 'Railroad Tracks' and isinstance(metadata, dict):
@@ -770,8 +838,7 @@ class Visualizer:
             sub_entry_idx = sub_df.index.get_loc(entry_date)
             sub_exit_idx = sub_df.index.get_loc(exit_date)
             
-            entry_price = trade_row['Entry Price']
-            exit_price = trade_row['Exit Price']
+            # entry_price and exit_price are already defined at the top
             
             # Entry Marker
             option['series'].append({
