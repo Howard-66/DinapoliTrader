@@ -5,12 +5,15 @@ Based on the successful completion of Phases 1-6, this document outlines the str
 ## 1. Strategy Expansion (More Patterns)
 To diversify signal sources and adapt to different market regimes.
 
--   **Railroad Tracks (RRT)**:
-    -   **Logic**: Two candlesticks with opposite directions, similar length, looking like railway tracks. A strong reversal signal.
-    -   **Implementation**: Detect RRT patterns near key Fibonacci levels or DMA support/resistance.
--   **Failure to Penetrate (FTP)**:
-    -   **Logic**: Price penetrates a DMA but fails to close beyond it, or penetrates a Fib level but reverses.
-    -   **Implementation**: Logic to detect "wicks" penetrating levels but closing back inside.
+-   **Strategy C: L3 Confluence**:
+    -   **Logic**: The "Holy Grail" of DiNapoli levels. Identifying a tight zone where a Major Retracement (e.g., 0.382) coincides with a Minor Expansion (e.g., COP=0.618 or OP=1.0).
+    -   **Implementation**: Algorithm to calculate delta between all active Retracements and Expansions. If `abs(Ret - Exp) < Threshold`, mark as L3 Zone.
+-   **Strategy D: Minesweeper A**:
+    -   **Logic**: For runaway trends that never retrace to 0.382. Uses Stochastic (8,3,3) signal when price is "sweeping" the DMA.
+    -   **Implementation**: Trigger Buy if `Price > DMA` (sustained) AND `Stoch Cross Up`.
+-   **Signal Filters (RRT & FTP)**:
+    -   **Railroad Tracks (RRT)**: Two candlesticks with opposite directions, similar length. Use as a weight booster for existing signals.
+    -   **Failure to Penetrate (FTP)**: Price penetrates a DMA/Fib level but fails to close beyond it. Use to filter out false breakouts.
 -   **Consolidation Breakout**:
     -   **Logic**: Identify periods of low volatility (squeeze) followed by a strong thrust (expansion).
     -   **Implementation**: Bollinger Band Squeeze or Keltner Channel breakout logic.

@@ -67,9 +67,12 @@
 
 ## Phase 7: Strategy Expansion & Fundamentals (Weeks 19-21)
 **Goal:** Diversify signal sources and integrate fundamental data.
-- [ ] **New Patterns**:
-    - **Railroad Tracks (RRT)**: Reversal pattern with two opposite candles.
-    - **Failure to Penetrate (FTP)**: Price fails to close beyond key levels.
+- [ ] **Core Strategy Expansion**:
+    - **Strategy C: L3 Confluence**: Implementation of high-precision Fibonacci intersection (Retracement + Expansion).
+    - **Strategy D: Minesweeper A**: Trend following logic for markets with zero retracement (Stochastics filter).
+- [ ] **Signal Filters & Confirmations**:
+    - **Railroad Tracks (RRT)**: Reversal pattern logic as a signal booster.
+    - **Failure to Penetrate (FTP)**: Logic to detect rejection at key levels (wicks).
     - **Consolidation Breakout**: Volatility squeeze breakouts.
 - [ ] **Fundamental Analysis**:
     - **Data Integration**: Fetch PE, PB, ROE, Revenue Growth from Tushare/YFinance.
